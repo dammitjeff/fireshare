@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Autocomplete, Button, ButtonGroup, Grid, IconButton, InputAdornment, Modal, Paper, Slide, TextField } from '@mui/material'
+import { Autocomplete, Box, Button, ButtonGroup, Grid, IconButton, InputAdornment, Modal, Paper, Slide, TextField } from '@mui/material'
 import LinkIcon from '@mui/icons-material/Link'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import ShuffleIcon from '@mui/icons-material/Shuffle'
@@ -286,8 +286,23 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
             >
               <CloseIcon sx={{ width: 35, height: 35 }} />
             </IconButton>
-            <Grid container justifyContent="center" sx={{ gap: '6px' }}>
-              <Grid item xs={12}>
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                maxHeight: 'calc(100vh - 40px)',
+                overflow: 'hidden',
+              }}
+            >
+              <Box
+                sx={{
+                  width: '100%',
+                  maxWidth: 'calc((100vh - 40px - 200px) * 16 / 9)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
                 <VideoJSPlayer
                   sources={getVideoSources(vid.video_id, vid?.info, vid.extension)}
                   poster={getPosterUrl()}
@@ -298,144 +313,146 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                     playerRef.current = player
                   }}
                 />
-              </Grid>
-              <Grid item>
-                <ButtonGroup variant="contained" onClick={(e) => e.stopPropagation()}>
-                  <Button onClick={getRandomVideo}>
-                    <ShuffleIcon />
-                  </Button>
-                  {authenticated && (
-                    <Button onClick={handlePrivacyChange} edge="end">
-                      {privateView ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                    </Button>
-                  )}
-                  <TextField
-                    sx={{
-                      textAlign: 'center',
-                      background: 'rgba(50, 50, 50, 0.9)',
-                      '& .MuiOutlinedInput-root': {
-                        borderRadius: 0,
-                        width: {
-                          xs: 'auto',
-                          sm: 350,
-                          md: 450,
-                        },
-                      },
-                      '& .MuiInputBase-input.Mui-disabled': {
-                        WebkitTextFillColor: '#fff',
-                      },
-                    }}
-                    size="small"
-                    value={title}
-                    placeholder="Video Title"
-                    disabled={!authenticated}
-                    onChange={(e) => handleTitleChange(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && update()}
-                    InputProps={{
-                      endAdornment: authenticated && (
-                        <InputAdornment position="end">
-                          <IconButton
-                            disabled={!updateable}
-                            sx={
-                              updateable
-                                ? {
-                                    animation: 'blink-blue 0.5s ease-in-out infinite alternate',
-                                  }
-                                : {}
-                            }
-                            onClick={update}
-                            edge="end"
-                          >
-                            <SaveIcon />
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                  <CopyToClipboard text={`${PURL}${vid.video_id}`}>
-                    <Button
-                      onMouseDown={handleMouseDown}
-                      onClick={() =>
-                        setAlert({
-                          type: 'info',
-                          message: 'Link copied to clipboard',
-                          open: true,
-                        })
-                      }
-                    >
-                      <LinkIcon />
-                    </Button>
-                  </CopyToClipboard>
-                  <Button onClick={copyTimestamp}>
-                    <AccessTimeIcon />
-                  </Button>
-                </ButtonGroup>
-                {(authenticated || description) && (
-                  <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
-                    <TextField
-                      fullWidth
-                      disabled={!authenticated}
-                      sx={{
-                        '& .MuiInputBase-input.Mui-disabled': {
-                          WebkitTextFillColor: '#fff',
-                        },
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          border: 'none',
-                        },
-                      }}
-                      size="small"
-                      placeholder="Enter a video description..."
-                      value={description || ''}
-                      onChange={(e) => handleDescriptionChange(e.target.value)}
-                      rows={2}
-                      multiline
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </Paper>
-                )}
-                {/* Game ID search bar */}
-                {authenticated && (
-                  <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
-                    <Autocomplete
-                      value={selectedGame}
-                      onChange={handleGameChange}
-                      onInputChange={(_, val) => searchGames(val)}
-                      options={gameOptions}
-                      getOptionLabel={(option) => option.name || ''}
-                      loading={gameSearchLoading}
-                      renderInput={(params) => (
+                <Grid container justifyContent="center" sx={{ mt: 1 }}>
+                  <Grid item>
+                    <ButtonGroup variant="contained" onClick={(e) => e.stopPropagation()}>
+                      <Button onClick={getRandomVideo}>
+                        <ShuffleIcon />
+                      </Button>
+                      {authenticated && (
+                        <Button onClick={handlePrivacyChange} edge="end">
+                          {privateView ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                        </Button>
+                      )}
+                      <TextField
+                        sx={{
+                          textAlign: 'center',
+                          background: 'rgba(50, 50, 50, 0.9)',
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 0,
+                            width: {
+                              xs: 'auto',
+                              sm: 350,
+                              md: 450,
+                            },
+                          },
+                          '& .MuiInputBase-input.Mui-disabled': {
+                            WebkitTextFillColor: '#fff',
+                          },
+                        }}
+                        size="small"
+                        value={title}
+                        placeholder="Video Title"
+                        disabled={!authenticated}
+                        onChange={(e) => handleTitleChange(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && update()}
+                        InputProps={{
+                          endAdornment: authenticated && (
+                            <InputAdornment position="end">
+                              <IconButton
+                                disabled={!updateable}
+                                sx={
+                                  updateable
+                                    ? {
+                                        animation: 'blink-blue 0.5s ease-in-out infinite alternate',
+                                      }
+                                    : {}
+                                }
+                                onClick={update}
+                                edge="end"
+                              >
+                                <SaveIcon />
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                      <CopyToClipboard text={`${PURL}${vid.video_id}`}>
+                        <Button
+                          onMouseDown={handleMouseDown}
+                          onClick={() =>
+                            setAlert({
+                              type: 'info',
+                              message: 'Link copied to clipboard',
+                              open: true,
+                            })
+                          }
+                        >
+                          <LinkIcon />
+                        </Button>
+                      </CopyToClipboard>
+                      <Button onClick={copyTimestamp}>
+                        <AccessTimeIcon />
+                      </Button>
+                    </ButtonGroup>
+                    {(authenticated || description) && (
+                      <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
                         <TextField
-                          {...params}
-                          placeholder="Search for a game..."
+                          fullWidth
+                          disabled={!authenticated}
+                          sx={{
+                            '& .MuiInputBase-input.Mui-disabled': {
+                              WebkitTextFillColor: '#fff',
+                            },
+                            '& .MuiOutlinedInput-notchedOutline': {
+                              border: 'none',
+                            },
+                          }}
                           size="small"
-                          sx={{ '& .MuiOutlinedInput-notchedOutline': { border: 'none' } }}
-                          InputProps={{
-                            ...params.InputProps,
-                            startAdornment: (
-                              <InputAdornment position="start">
-                                <SportsEsportsIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                              </InputAdornment>
-                            ),
+                          placeholder="Enter a video description..."
+                          value={description || ''}
+                          onChange={(e) => handleDescriptionChange(e.target.value)}
+                          rows={2}
+                          multiline
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </Paper>
+                    )}
+                    {/* Game ID search bar */}
+                    {authenticated && (
+                      <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
+                        <Autocomplete
+                          value={selectedGame}
+                          onChange={handleGameChange}
+                          onInputChange={(_, val) => searchGames(val)}
+                          options={gameOptions}
+                          getOptionLabel={(option) => option.name || ''}
+                          loading={gameSearchLoading}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              placeholder="Search for a game..."
+                              size="small"
+                              sx={{ '& .MuiOutlinedInput-notchedOutline': { border: 'none' } }}
+                              InputProps={{
+                                ...params.InputProps,
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <SportsEsportsIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                                  </InputAdornment>
+                                ),
+                              }}
+                            />
+                          )}
+                          renderOption={(props, option) => (
+                            <li {...props} key={option.id}>
+                              {option.name}
+                              {option.release_date && ` (${new Date(option.release_date * 1000).getFullYear()})`}
+                            </li>
+                          )}
+                          sx={{
+                            '& .MuiAutocomplete-input, & .MuiAutocomplete-popupIndicator, & .MuiAutocomplete-clearIndicator': {
+                              color: '#fff',
+                              opacity: 0.7,
+                            },
                           }}
                         />
-                      )}
-                      renderOption={(props, option) => (
-                        <li {...props} key={option.id}>
-                          {option.name}
-                          {option.release_date && ` (${new Date(option.release_date * 1000).getFullYear()})`}
-                        </li>
-                      )}
-                      sx={{
-                        '& .MuiAutocomplete-input, & .MuiAutocomplete-popupIndicator, & .MuiAutocomplete-clearIndicator': {
-                          color: '#fff',
-                          opacity: 0.7,
-                        },
-                      }}
-                    />
-                  </Paper>
-                )}
-              </Grid>
-            </Grid>
+                      </Paper>
+                    )}
+                  </Grid>
+                </Grid>
+              </Box>
+            </Box>
           </Paper>
         </Slide>
       </Modal>
