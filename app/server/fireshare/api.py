@@ -106,6 +106,14 @@ def get_or_update_config():
         if not config_path.exists():
             return Response(status=500, response='Could not find a config to update.')
         config_path.write_text(json.dumps(config, indent=2))
+
+        # Check if SteamGridDB API key was added and remove warning if present
+        steamgrid_api_key = config.get('integrations', {}).get('steamgriddb_api_key', '')
+        if steamgrid_api_key:
+            steamgridWarning = "SteamGridDB API key not configured. Game metadata features are unavailable. Click here to set it up."
+            if steamgridWarning in current_app.config['WARNINGS']:
+                current_app.config['WARNINGS'].remove(steamgridWarning)
+
         return Response(status=200)
 
 @api.route('/api/admin/warnings', methods=["GET"])
@@ -168,14 +176,18 @@ def get_random_video():
     row_count = Video.query.count()
     random_video = Video.query.offset(int(row_count * random.random())).first()
     current_app.logger.info(f"Fetched random video {random_video.video_id}: {random_video.info.title}")
-    return jsonify(random_video.json())
+    vjson = random_video.json()
+    vjson["view_count"] = VideoView.count(random_video.video_id)
+    return jsonify(vjson)
 
 @api.route('/api/video/public/random')
 def get_random_public_video():
     row_count =  Video.query.filter(Video.info.has(private=False)).filter_by(available=True).count()
     random_video = Video.query.filter(Video.info.has(private=False)).filter_by(available=True).offset(int(row_count * random.random())).first()
     current_app.logger.info(f"Fetched public random video {random_video.video_id}: {random_video.info.title}")
-    return jsonify(random_video.json())
+    vjson = random_video.json()
+    vjson["view_count"] = VideoView.count(random_video.video_id)
+    return jsonify(vjson)
 
 @api.route('/api/videos/public')
 def get_public_videos():
@@ -254,7 +266,9 @@ def handle_video_details(id):
         # video_id = request.args['id']
         video = Video.query.filter_by(video_id=id).first()
         if video:
-            return jsonify(video.json())
+            vjson = video.json()
+            vjson["view_count"] = VideoView.count(video.video_id)
+            return jsonify(vjson)
         else:
             return jsonify({
                 'message': 'Video not found'
@@ -701,7 +715,13 @@ def get_game_videos(game_id):
     video_ids = [link.video_id for link in links]
     videos = Video.query.filter(Video.video_id.in_(video_ids)).all()
 
-    return jsonify([video.json() for video in videos])
+    videos_json = []
+    for video in videos:
+        vjson = video.json()
+        vjson["view_count"] = VideoView.count(video.video_id)
+        videos_json.append(vjson)
+
+    return jsonify(videos_json)
 
 @api.after_request
 def after_request(response):
