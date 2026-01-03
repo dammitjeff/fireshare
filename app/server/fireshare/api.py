@@ -627,7 +627,26 @@ def get_steamgrid_assets(game_id):
 
 @api.route('/api/games', methods=["GET"])
 def get_games():
-    games = GameMetadata.query.all()
+    from flask_login import current_user
+
+    # If user is authenticated, show all games
+    if current_user.is_authenticated:
+        games = GameMetadata.query.all()
+    else:
+        # For public users, only show games that have at least one public (available) video
+        games = (
+            db.session.query(GameMetadata)
+            .join(VideoGameLink)
+            .join(Video)
+            .join(VideoInfo)
+            .filter(
+                Video.available.is_(True),
+                VideoInfo.private.is_(False),
+            )
+            .distinct()
+            .all()
+        )
+
     return jsonify([game.json() for game in games])
 
 @api.route('/api/games', methods=["POST"])
@@ -768,12 +787,21 @@ def get_game_asset(steamgriddb_id, filename):
 
 @api.route('/api/games/<int:steamgriddb_id>/videos', methods=["GET"])
 def get_game_videos(steamgriddb_id):
+    from flask_login import current_user
+
     game = GameMetadata.query.filter_by(steamgriddb_id=steamgriddb_id).first()
     if not game:
         return Response(status=404, response='Game not found.')
 
     videos_json = []
     for link in game.videos:
+        if not current_user.is_authenticated:
+            # Only show available, non-private videos to public users
+            if not link.video.available:
+                continue
+            if not link.video.info or link.video.info.private:
+                continue
+
         vjson = link.video.json()
         vjson["view_count"] = VideoView.count(link.video_id)
         videos_json.append(vjson)
