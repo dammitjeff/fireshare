@@ -115,7 +115,7 @@ const Games = ({ authenticated }) => {
   return (
     <Box sx={{ p: 3 }}>
       {/* Edit button and Delete button */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2, alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2, alignItems: 'flex-start' }}>
         {editMode && (
           <Button
             variant="contained"
@@ -136,6 +136,9 @@ const Games = ({ authenticated }) => {
             sx={{
               bgcolor: editMode ? 'primary.main' : 'rgba(255, 255, 255, 0.1)',
               borderRadius: '8px',
+              width: '36.5px',
+              height: '36.5px',
+              padding: '8px',
               '&:hover': {
                 bgcolor: editMode ? 'primary.dark' : 'rgba(255, 255, 255, 0.2)',
               },
