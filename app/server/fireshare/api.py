@@ -770,6 +770,34 @@ def get_game_asset(steamgriddb_id, filename):
                     asset_path = alternative_path
                     break
 
+    # If asset still doesn't exist, try to re-download from SteamGridDB
+    if not asset_path.exists():
+        logger.warning(f"{filename} missing for game {steamgriddb_id}")
+        api_key = get_steamgriddb_api_key()
+        if api_key:
+            from .steamgrid import SteamGridDBClient
+            client = SteamGridDBClient(api_key)
+            game_assets_dir = paths['data'] / 'game_assets'
+
+            logger.info(f"Downloading assets for game {steamgriddb_id}")
+            result = client.download_and_save_assets(steamgriddb_id, game_assets_dir)
+
+            if result.get('success'):
+                logger.info(f"Assets downloaded for game {steamgriddb_id}: {result.get('assets')}")
+                # Try to find the file again after re-download
+                base_name = filename.rsplit('.', 1)[0]
+                asset_dir = paths['data'] / 'game_assets' / str(steamgriddb_id)
+                for ext in ['.png', '.jpg', '.jpeg', '.webp']:
+                    alternative_path = asset_dir / f'{base_name}{ext}'
+                    if alternative_path.exists():
+                        asset_path = alternative_path
+                        logger.info(f"Found {alternative_path.name}")
+                        break
+            else:
+                logger.error(f"Download failed for game {steamgriddb_id}: {result.get('error')}")
+        else:
+            logger.warning(f"Download failed for game {steamgriddb_id}: No SteamGridDB API key configured")
+
     if not asset_path.exists():
         return Response(status=404, response='Asset not found.')
 
@@ -807,6 +835,74 @@ def get_game_videos(steamgriddb_id):
         videos_json.append(vjson)
 
     return jsonify(videos_json)
+
+@api.route('/api/games/<int:steamgriddb_id>', methods=["DELETE"])
+@login_required
+def delete_game(steamgriddb_id):
+    """
+    Delete a game and optionally all associated videos.
+    Query param: delete_videos (boolean) - if true, also delete all videos linked to this game
+    """
+    game = GameMetadata.query.filter_by(steamgriddb_id=steamgriddb_id).first()
+    if not game:
+        return Response(status=404, response='Game not found.')
+
+    delete_videos = request.args.get('delete_videos', 'false').lower() == 'true'
+
+    logger.info(f"Deleting game {game.name} (steamgriddb_id: {steamgriddb_id}), delete_videos={delete_videos}")
+
+    # Get all video links for this game
+    video_links = VideoGameLink.query.filter_by(game_id=game.id).all()
+
+    if delete_videos and video_links:
+        # Delete all associated videos
+        paths = current_app.config['PATHS']
+        for link in video_links:
+            video = link.video
+            logger.info(f"Deleting video: {video.video_id}")
+
+            file_path = paths['video'] / video.path
+            link_path = paths['processed'] / 'video_links' / f"{video.video_id}{video.extension}"
+            derived_path = paths['processed'] / 'derived' / video.video_id
+
+            # Delete from database
+            VideoInfo.query.filter_by(video_id=video.video_id).delete()
+            Video.query.filter_by(video_id=video.video_id).delete()
+
+            # Delete files
+            try:
+                if file_path.exists():
+                    file_path.unlink()
+                    logger.info(f"Deleted video file: {file_path}")
+                if link_path.exists() or link_path.is_symlink():
+                    link_path.unlink()
+                    logger.info(f"Deleted link file: {link_path}")
+                if derived_path.exists():
+                    shutil.rmtree(derived_path)
+                    logger.info(f"Deleted derived directory: {derived_path}")
+            except OSError as e:
+                logger.error(f"Error deleting files for video {video.video_id}: {e}")
+    else:
+        # Just unlink videos from the game
+        for link in video_links:
+            db.session.delete(link)
+
+    # Delete game assets
+    paths = current_app.config['PATHS']
+    game_assets_dir = paths['data'] / 'game_assets' / str(steamgriddb_id)
+    if game_assets_dir.exists():
+        try:
+            shutil.rmtree(game_assets_dir)
+            logger.info(f"Deleted game assets directory: {game_assets_dir}")
+        except OSError as e:
+            logger.error(f"Error deleting game assets for {steamgriddb_id}: {e}")
+
+    # Delete game from database
+    db.session.delete(game)
+    db.session.commit()
+
+    logger.info(f"Successfully deleted game {game.name}")
+    return Response(status=200)
 
 @api.after_request
 def after_request(response):

@@ -19,6 +19,8 @@ class Video(db.Model):
     available = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime())
     updated_at = db.Column(db.DateTime())
+    recorded_at = db.Column(db.DateTime(), nullable=True)  # Extracted from filename
+    source_folder = db.Column(db.String(256), nullable=True)  # Original folder name for game detection
 
     info      = db.relationship("VideoInfo", back_populates="video", uselist=False, lazy="joined")
 
@@ -28,6 +30,7 @@ class Video(db.Model):
             "extension": self.extension,
             "path": self.path,
             "available": self.available,
+            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
             "info": self.info.json(),
         }
         return j

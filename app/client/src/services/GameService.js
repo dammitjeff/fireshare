@@ -31,6 +31,13 @@ const service = {
   unlinkVideoFromGame(videoId) {
     return Api().delete(`/api/videos/${videoId}/game`)
   },
+  deleteGame(gameId, deleteVideos = false) {
+    return Api().delete(`/api/games/${gameId}`, {
+      params: {
+        delete_videos: deleteVideos,
+      },
+    })
+  },
 }
 
 export default service
