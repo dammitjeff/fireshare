@@ -164,9 +164,8 @@ const CompactVideoCard = ({
           variant="contained"
           size="small"
           sx={{
-            width: '100%',
+            width: cardWidth,
             background: '#0b132b',
-
             borderRadius: '6px',
             borderBottomLeftRadius: 0,
             borderBottomRightRadius: 0,
@@ -239,6 +238,7 @@ const CompactVideoCard = ({
         </ButtonGroup>
         <Box
           sx={{
+            width: cardWidth,
             lineHeight: 0,
             bgcolor: 'rgba(0,0,0,0)',
             p: 0,
