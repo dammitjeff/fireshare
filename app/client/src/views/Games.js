@@ -14,6 +14,7 @@ import {
 } from '@mui/material'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import CheckIcon from '@mui/icons-material/Check'
 import { useNavigate } from 'react-router-dom'
 import { GameService } from '../services'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
@@ -114,32 +115,34 @@ const Games = ({ authenticated }) => {
   return (
     <Box sx={{ p: 3 }}>
       {/* Edit button and Delete button */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2 }}>
-        {authenticated && (
-          <IconButton
-            onClick={handleEditModeToggle}
-            sx={{
-              bgcolor: editMode ? 'primary.main' : 'rgba(255, 255, 255, 0.1)',
-              '&:hover': {
-                bgcolor: editMode ? 'primary.dark' : 'rgba(255, 255, 255, 0.2)',
-              },
-            }}
-          >
-            <EditIcon />
-          </IconButton>
-        )}
-        {editMode && selectedGames.size > 0 && (
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2, alignItems: 'center' }}>
+        {editMode && (
           <Button
             variant="contained"
             color="error"
             startIcon={<DeleteIcon />}
             onClick={handleDeleteClick}
+            disabled={selectedGames.size === 0}
             sx={{
-              borderRadius: '20px',
+              borderRadius: '8px',
             }}
           >
-            Delete ({selectedGames.size})
+            Delete {selectedGames.size > 0 && `(${selectedGames.size})`}
           </Button>
+        )}
+        {authenticated && (
+          <IconButton
+            onClick={handleEditModeToggle}
+            sx={{
+              bgcolor: editMode ? 'primary.main' : 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
+              '&:hover': {
+                bgcolor: editMode ? 'primary.dark' : 'rgba(255, 255, 255, 0.2)',
+              },
+            }}
+          >
+            {editMode ? <CheckIcon /> : <EditIcon />}
+          </IconButton>
         )}
       </Box>
 
