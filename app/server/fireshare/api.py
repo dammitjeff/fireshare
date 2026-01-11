@@ -19,6 +19,12 @@ from .models import Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
 
+def add_cache_headers(response, cache_key, max_age=604800):
+    """Add cache headers for static assets (default: 7 days)."""
+    response.headers['Cache-Control'] = f'public, max-age={max_age}, must-revalidate'
+    response.headers['ETag'] = f'"{cache_key}"'
+    return response
+
 templates_path = os.environ.get('TEMPLATE_PATH') or 'templates'
 api = Blueprint('api', __name__, template_folder=templates_path)
 
@@ -291,10 +297,13 @@ def get_video_poster():
     video_id = request.args['id']
     webm_poster_path = Path(current_app.config["PROCESSED_DIRECTORY"], "derived", video_id, "boomerang-preview.webm")
     jpg_poster_path = Path(current_app.config["PROCESSED_DIRECTORY"], "derived", video_id, "poster.jpg")
+
     if request.args.get('animated'):
-        return send_file(webm_poster_path, mimetype='video/webm')
+        response = send_file(webm_poster_path, mimetype='video/webm')
     else:
-        return send_file(jpg_poster_path, mimetype='image/jpg')
+        response = send_file(jpg_poster_path, mimetype='image/jpg')
+
+    return add_cache_headers(response, video_id)
 
 @api.route('/api/video/view', methods=['POST'])
 def add_video_view():
@@ -811,7 +820,8 @@ def get_game_asset(steamgriddb_id, filename):
     }
     mime_type = mime_types.get(ext, 'image/png')
 
-    return send_file(asset_path, mimetype=mime_type)
+    response = send_file(asset_path, mimetype=mime_type)
+    return add_cache_headers(response, f"{steamgriddb_id}-{filename}")
 
 @api.route('/api/games/<int:steamgriddb_id>/videos', methods=["GET"])
 def get_game_videos(steamgriddb_id):
