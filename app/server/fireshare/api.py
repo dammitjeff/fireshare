@@ -715,6 +715,20 @@ def create_game():
     if not data.get('steamgriddb_id'):
         return Response(status=400, response='SteamGridDB ID is required.')
 
+    existing_game = GameMetadata.query.filter_by(steamgriddb_id=data['steamgriddb_id']).first()
+    if existing_game:
+        updated = False
+        if data.get('name') and data['name'] != existing_game.name:
+            existing_game.name = data['name']
+            updated = True
+        if data.get('release_date') and data.get('release_date') != existing_game.release_date:
+            existing_game.release_date = data['release_date']
+            updated = True
+        if updated:
+            existing_game.updated_at = datetime.utcnow()
+            db.session.commit()
+        return jsonify(existing_game.json()), 200
+
     # Get API key and initialize client
     api_key = get_steamgriddb_api_key()
     if not api_key:
