@@ -14,6 +14,7 @@ import {
 import SnackbarAlert from '../components/alert/SnackbarAlert'
 import SaveIcon from '@mui/icons-material/Save'
 import SensorsIcon from '@mui/icons-material/Sensors'
+import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import { ConfigService, VideoService } from '../services'
@@ -86,6 +87,23 @@ const Settings = ({ authenticated }) => {
       type: 'info',
       message: 'Scan initiated. This could take a few minutes.',
     })
+  }
+
+  const handleScanGames = async () => {
+    try {
+      const response = await VideoService.scanGames()
+      setAlert({
+        open: true,
+        type: 'success',
+        message: `Game scan complete! Created ${response.data.suggestions_created} suggestions from ${response.data.total_videos} videos.`,
+      })
+    } catch (err) {
+      setAlert({
+        open: true,
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to scan videos for games',
+      })
+    }
   }
 
   const checkForWarnings  = async () =>{
@@ -375,9 +393,12 @@ const Settings = ({ authenticated }) => {
           </Grid>
           <Grid item xs={12}>
             <Divider sx={{ mb: 2 }} light />
-            <Box sx={{ display: 'flex', width: '100%', pr: 2 }} justifyContent="flex-start">
+            <Box sx={{ display: 'flex', width: '100%', pr: 2, gap: 2 }} justifyContent="flex-start">
               <Button variant="contained" startIcon={<SensorsIcon />} onClick={handleScan}>
                 Scan Library
+              </Button>
+              <Button variant="contained" startIcon={<SportsEsportsIcon />} onClick={handleScanGames}>
+                Scan for Games
               </Button>
             </Box>
           </Grid>

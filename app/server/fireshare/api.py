@@ -142,6 +142,52 @@ def manual_scan():
         Popen(["fireshare", "bulk-import"], shell=False)
     return Response(status=200)
 
+@api.route('/api/manual/scan-games')
+@login_required
+def manual_scan_games():
+    """Scan all videos for game detection and create suggestions"""
+    from fireshare import util
+    from fireshare.cli import save_game_suggestion, _load_suggestions
+
+    try:
+        steamgriddb_api_key = get_steamgriddb_api_key()
+
+        # Get all videos
+        videos = Video.query.join(VideoInfo).all()
+        suggestions_created = 0
+
+        # Load existing suggestions to avoid duplicates
+        existing_suggestions = _load_suggestions()
+
+        for video in videos:
+            # Skip if already has a game linked
+            existing_link = VideoGameLink.query.filter_by(video_id=video.video_id).first()
+            if existing_link:
+                continue
+
+            # Skip if already has a suggestion
+            if video.video_id in existing_suggestions:
+                continue
+
+            # Try to detect game from filename
+            filename = Path(video.path).stem
+            detected_game = util.detect_game_from_filename(filename, steamgriddb_api_key)
+
+            if detected_game and detected_game['confidence'] >= 0.65:
+                save_game_suggestion(video.video_id, detected_game)
+                suggestions_created += 1
+                logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']}")
+
+        return jsonify({
+            'success': True,
+            'total_videos': len(videos),
+            'suggestions_created': suggestions_created
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error scanning videos for games: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @api.route('/api/videos')
 @login_required
 def get_videos():
