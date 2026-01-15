@@ -151,9 +151,9 @@ function Navbar20({
 
   const uiConfig = getSetting('ui_config') || {}
   const pages = allPages.filter((p) => {
-    if (p.href === '/games' && uiConfig.show_games_tab === false) {
-      return false
-    }
+    if (p.href === '/' && uiConfig.show_my_videos === false) return false
+    if (p.href === '/feed' && uiConfig.show_public_videos === false) return false
+    if (p.href === '/games' && uiConfig.show_games === false) return false
     return true
   })
 

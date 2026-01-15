@@ -316,22 +316,50 @@ const Settings = ({ authenticated }) => {
                 <Divider />
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 18 }}>
-                    Navigation
+                    Sidebar
                   </Typography>
                 </Box>
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={updatedConfig.ui_config?.show_games_tab !== false}
+                      checked={updatedConfig.ui_config?.show_my_videos !== false}
                       onChange={(e) =>
                         setUpdatedConfig((prev) => ({
                           ...prev,
-                          ui_config: { ...prev.ui_config, show_games_tab: e.target.checked },
+                          ui_config: { ...prev.ui_config, show_my_videos: e.target.checked },
                         }))
                       }
                     />
                   }
-                  label="Show Games Tab"
+                  label="My Videos"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={updatedConfig.ui_config?.show_public_videos !== false}
+                      onChange={(e) =>
+                        setUpdatedConfig((prev) => ({
+                          ...prev,
+                          ui_config: { ...prev.ui_config, show_public_videos: e.target.checked },
+                        }))
+                      }
+                    />
+                  }
+                  label="Public Videos"
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={updatedConfig.ui_config?.show_games !== false}
+                      onChange={(e) =>
+                        setUpdatedConfig((prev) => ({
+                          ...prev,
+                          ui_config: { ...prev.ui_config, show_games: e.target.checked },
+                        }))
+                      }
+                    />
+                  }
+                  label="Games"
                 />
                 <Divider />
                 <Box sx={{ textAlign: 'center' }}>
