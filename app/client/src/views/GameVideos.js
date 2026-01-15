@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { Box } from '@mui/material'
+import { Box, Typography } from '@mui/material'
 import { useParams } from 'react-router-dom'
 import Select from 'react-select'
 import { GameService } from '../services'
@@ -11,6 +11,7 @@ import LoadingSpinner from '../components/misc/LoadingSpinner'
 import SnackbarAlert from '../components/alert/SnackbarAlert'
 import { SORT_OPTIONS } from '../common/constants'
 import selectSortTheme from '../common/reactSelectSortTheme'
+import { formatDate } from '../common/utils'
 
 const GameVideos = ({ cardSize, listStyle, authenticated, searchText }) => {
   const { gameId } = useParams()
@@ -32,13 +33,14 @@ const GameVideos = ({ cardSize, listStyle, authenticated, searchText }) => {
   React.useEffect(() => {
     Promise.all([
       GameService.getGames(),
-      GameService.getGameVideos(gameId)
+      GameService.getGameVideos(gameId),
     ])
       .then(([gamesRes, videosRes]) => {
-        const foundGame = gamesRes.data.find(g => g.steamgriddb_id === parseInt(gameId))
+        const foundGame = gamesRes.data.find((g) => g.steamgriddb_id === parseInt(gameId))
         setGame(foundGame)
-        setVideos(videosRes.data)
-        setFilteredVideos(videosRes.data)
+        const fetchedVideos = videosRes.data || []
+        setVideos(fetchedVideos)
+        setFilteredVideos(fetchedVideos)
         setLoading(false)
       })
       .catch((err) => {
@@ -53,21 +55,54 @@ const GameVideos = ({ cardSize, listStyle, authenticated, searchText }) => {
 
   function fetchVideos() {
     GameService.getGameVideos(gameId)
-      .then((res) => setVideos(res.data))
+      .then((res) => {
+        const fetchedVideos = res.data || []
+        setVideos(fetchedVideos)
+        setFilteredVideos(fetchedVideos)
+      })
       .catch((err) => console.error(err))
   }
 
+  const sortValue = sortOrder?.value || 'updated_at desc'
+  const isDateSort = sortValue === 'newest'
+    || sortValue === 'oldest'
+    || sortValue.startsWith('recorded_at')
+    || sortValue.startsWith('updated_at')
+    || sortValue.startsWith('created_at')
+
   const sortedVideos = React.useMemo(() => {
     if (!filteredVideos || !Array.isArray(filteredVideos)) return []
-    const [field, direction] = (sortOrder?.value || 'updated_at desc').split(' ')
+
+    const getViews = (video) => video.view_count ?? video.views ?? 0
+    const getRecordedDate = (video) => new Date(video.recorded_at || video.updated_at || video.created_at || 0)
+
+    if (sortValue === 'most_views') {
+      return [...filteredVideos].sort((a, b) => getViews(b) - getViews(a))
+    }
+
+    if (sortValue === 'least_views') {
+      return [...filteredVideos].sort((a, b) => getViews(a) - getViews(b))
+    }
+
+    if (isDateSort) {
+      const isAsc = sortValue === 'oldest' || sortValue.endsWith('asc')
+      return [...filteredVideos].sort((a, b) => {
+        const dateA = getRecordedDate(a)
+        const dateB = getRecordedDate(b)
+        return isAsc ? dateA - dateB : dateB - dateA
+      })
+    }
+
+    const [field, direction] = sortValue.split(' ')
     return [...filteredVideos].sort((a, b) => {
-      let aVal, bVal
+      let aVal
+      let bVal
       if (field === 'video_info.title') {
         aVal = a.info?.title?.toLowerCase() || ''
         bVal = b.info?.title?.toLowerCase() || ''
       } else if (field === 'views') {
-        aVal = a.view_count || 0
-        bVal = b.view_count || 0
+        aVal = getViews(a)
+        bVal = getViews(b)
       } else {
         aVal = new Date(a[field] || a.created_at || 0)
         bVal = new Date(b[field] || b.created_at || 0)
@@ -76,7 +111,20 @@ const GameVideos = ({ cardSize, listStyle, authenticated, searchText }) => {
       if (aVal > bVal) return direction === 'asc' ? 1 : -1
       return 0
     })
-  }, [filteredVideos, sortOrder])
+  }, [filteredVideos, sortValue, isDateSort])
+
+  const groupedVideos = React.useMemo(() => {
+    if (!isDateSort) return null
+    const groups = {}
+    sortedVideos.forEach((video) => {
+      const dateKey = video.recorded_at
+        ? new Date(video.recorded_at).toISOString().split('T')[0]
+        : 'unknown'
+      if (!groups[dateKey]) groups[dateKey] = []
+      groups[dateKey].push(video)
+    })
+    return groups
+  }, [sortedVideos, isDateSort])
 
   if (loading) return <LoadingSpinner />
 
@@ -109,14 +157,43 @@ const GameVideos = ({ cardSize, listStyle, authenticated, searchText }) => {
             feedView={false}
           />
         ) : (
-          <VideoCards
-            videos={sortedVideos}
-            authenticated={authenticated}
-            size={cardSize}
-            feedView={false}
-            fetchVideos={fetchVideos}
-            handleAlert={setAlert}
-          />
+          isDateSort && groupedVideos && Object.keys(groupedVideos).length > 0 ? (
+            Object.entries(groupedVideos).map(([dateKey, dateVideos]) => {
+              const formattedDate = dateKey !== 'unknown' ? (formatDate(dateKey) || dateKey) : 'Unknown Date'
+
+              return (
+                <Box key={dateKey} sx={{ mb: 4 }}>
+                  <Typography
+                    sx={{
+                      mb: 2,
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: 'rgba(255, 255, 255, 0.7)',
+                    }}
+                  >
+                    {formattedDate}
+                  </Typography>
+                  <VideoCards
+                    videos={dateVideos}
+                    authenticated={authenticated}
+                    size={cardSize}
+                    feedView={false}
+                    fetchVideos={fetchVideos}
+                    handleAlert={setAlert}
+                  />
+                </Box>
+              )
+            })
+          ) : (
+            <VideoCards
+              videos={sortedVideos}
+              authenticated={authenticated}
+              size={cardSize}
+              feedView={false}
+              fetchVideos={fetchVideos}
+              handleAlert={setAlert}
+            />
+          )
         )}
       </Box>
     </Box>

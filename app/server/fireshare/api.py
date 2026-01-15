@@ -292,6 +292,36 @@ def manual_scan():
         Popen(["fireshare", "bulk-import"], shell=False)
     return Response(status=200)
 
+@api.route('/api/manual/scan-dates')
+@login_required
+def manual_scan_dates():
+    """Extract recording dates from filenames for videos missing recorded_at"""
+    from fireshare import util
+
+    try:
+        videos = Video.query.filter(Video.recorded_at.is_(None)).all()
+        dates_extracted = 0
+
+        for video in videos:
+            filename = Path(video.path).stem
+            recorded_at = util.extract_date_from_filename(filename)
+            if recorded_at:
+                video.recorded_at = recorded_at
+                dates_extracted += 1
+                logger.info(f"Extracted date {recorded_at.isoformat()} for video {video.video_id}")
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'videos_scanned': len(videos),
+            'dates_extracted': dates_extracted
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error scanning for dates: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @api.route('/api/scan-games/status')
 @login_required
 def get_game_scan_status():
@@ -576,6 +606,46 @@ def get_public_videos():
         videos_json = sorted(videos_json, key=lambda d: d['view_count'], reverse=True)
 
     return jsonify({"videos": videos_json})
+
+@api.route('/api/videos/dates')
+def get_video_dates():
+    """Get all unique dates that have videos recorded on them"""
+    from sqlalchemy import func
+    from flask_login import current_user
+
+    query = db.session.query(func.date(Video.recorded_at)).join(VideoInfo).filter(
+        Video.recorded_at.isnot(None),
+        Video.available.is_(True)
+    )
+
+    if not current_user.is_authenticated:
+        query = query.filter(VideoInfo.private.is_(False))
+
+    dates = query.distinct().order_by(func.date(Video.recorded_at).desc()).all()
+    return jsonify([str(d[0]) for d in dates if d[0]])
+
+@api.route('/api/videos/by-date/<date>')
+def get_videos_by_date(date):
+    """Get all videos recorded on a specific date (YYYY-MM-DD)"""
+    from sqlalchemy import func
+    from flask_login import current_user
+
+    try:
+        target_date = datetime.strptime(date, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+    query = Video.query.join(VideoInfo).filter(
+        func.date(Video.recorded_at) == target_date,
+        Video.available.is_(True)
+    )
+
+    if not current_user.is_authenticated:
+        query = query.filter(VideoInfo.private.is_(False))
+
+    videos = query.order_by(Video.recorded_at.desc()).all()
+    videos_json = [{"view_count": VideoView.count(v.video_id), **v.json()} for v in videos]
+    return jsonify({"videos": videos_json, "date": date})
 
 @api.route('/api/video/delete/<id>', methods=["DELETE"])
 @login_required
