@@ -15,6 +15,7 @@ import SnackbarAlert from '../components/alert/SnackbarAlert'
 import SaveIcon from '@mui/icons-material/Save'
 import SensorsIcon from '@mui/icons-material/Sensors'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import { ConfigService, VideoService } from '../services'
@@ -102,6 +103,23 @@ const Settings = ({ authenticated }) => {
         open: true,
         type: 'error',
         message: err.response?.data?.error || 'Failed to scan videos for games',
+      })
+    }
+  }
+
+  const handleScanDates = async () => {
+    try {
+      const response = await VideoService.scanDates()
+      setAlert({
+        open: true,
+        type: 'success',
+        message: `Date scan complete! Extracted ${response.data.dates_extracted} dates from ${response.data.videos_scanned} videos.`,
+      })
+    } catch (err) {
+      setAlert({
+        open: true,
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to scan videos for dates',
       })
     }
   }
@@ -447,6 +465,9 @@ const Settings = ({ authenticated }) => {
               </Button>
               <Button variant="contained" startIcon={<SportsEsportsIcon />} onClick={handleScanGames}>
                 Start Manual Scan for Missing Games
+              </Button>
+              <Button variant="contained" startIcon={<CalendarMonthIcon />} onClick={handleScanDates}>
+                Scan for Missing Dates
               </Button>
             </Box>
           </Grid>

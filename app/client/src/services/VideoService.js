@@ -119,6 +119,9 @@ const service = {
   scanGames() {
     return Api().get('/api/manual/scan-games')
   },
+  scanDates() {
+    return Api().get('/api/manual/scan-dates')
+  },
   getGameSuggestion(videoId) {
     return Api().get(`/api/videos/${videoId}/game/suggestion`)
   },
