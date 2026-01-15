@@ -1,15 +1,22 @@
 import React from 'react'
-import { Box, Divider, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material'
+import { Box, Divider, Typography } from '@mui/material'
 import { useParams } from 'react-router-dom'
 import { GameService } from '../services'
 import VideoCards from '../components/admin/VideoCards'
-import VideoList from '../components/admin/VideoList'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
 
+const formatDateGoogle = (isoString) => {
+  if (!isoString) return null
+  const date = new Date(isoString)
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  const day = date.getDate()
+  const year = date.getFullYear()
+  return `${weekday}, ${month} ${day}, ${year}`
+}
+
 const GameVideos = ({ cardSize, listStyle, authenticated }) => {
-  console.log('GameVideos render - props:', { cardSize, listStyle, authenticated })
   const { gameId } = useParams()
-  console.log('GameVideos - gameId:', gameId)
   const [videos, setVideos] = React.useState([])
   const [game, setGame] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
@@ -39,7 +46,6 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   }
 
   const sortedVideos = React.useMemo(() => {
-    console.log('GameVideos - computing sortedVideos, videos:', videos)
     if (!videos || !Array.isArray(videos)) return []
     return [...videos].sort((a, b) => {
       const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
@@ -49,29 +55,19 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   }, [videos, sortOrder])
 
   const groupedVideos = React.useMemo(() => {
-    console.log('GameVideos - computing groupedVideos, sortedVideos:', sortedVideos)
     const groups = {}
     sortedVideos.forEach((video) => {
-      const date = video.recorded_at
-        ? new Date(video.recorded_at).toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          })
-        : 'Unknown Date'
-      if (!groups[date]) groups[date] = []
-      groups[date].push(video)
+      // Use just the date part (YYYY-MM-DD) for grouping, not the full timestamp
+      const dateKey = video.recorded_at
+        ? new Date(video.recorded_at).toISOString().split('T')[0]
+        : 'unknown'
+      if (!groups[dateKey]) groups[dateKey] = []
+      groups[dateKey].push(video)
     })
-    console.log('GameVideos - groupedVideos result:', groups)
     return groups
   }, [sortedVideos])
 
-  console.log('GameVideos - about to render, loading:', loading, 'game:', game)
-
   if (loading) return <LoadingSpinner />
-
-  console.log('GameVideos - rendering main content')
 
   return (
     <Box>
@@ -103,27 +99,31 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
           <Typography color="text.secondary">No videos found for this game.</Typography>
         )}
 
-        {Object.entries(groupedVideos).map(([date, dateVideos]) => (
-          <Box key={date} sx={{ mb: 4 }}>
-            <Typography
-              variant="h6"
-              sx={{
-                mb: 2,
-                color: 'text.secondary',
-                fontWeight: 500,
-              }}
-            >
-              {date}
-            </Typography>
-            <VideoCards
-              videos={dateVideos}
-              authenticated={authenticated}
-              size={cardSize}
-              feedView={false}
-              fetchVideos={fetchVideos}
-            />
-          </Box>
-        ))}
+        {Object.entries(groupedVideos).map(([dateKey, dateVideos]) => {
+          const formattedDate = dateKey !== 'unknown' ? formatDateGoogle(dateKey) : 'Unknown Date'
+
+          return (
+            <Box key={dateKey} sx={{ mb: 4 }}>
+              <Typography
+                sx={{
+                  mb: 2,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: 'rgba(255, 255, 255, 0.7)',
+                }}
+              >
+                {formattedDate}
+              </Typography>
+              <VideoCards
+                videos={dateVideos}
+                authenticated={authenticated}
+                size={cardSize}
+                feedView={false}
+                fetchVideos={fetchVideos}
+              />
+            </Box>
+          )
+        })}
       </Box>
     </Box>
   )
