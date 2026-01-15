@@ -1,11 +1,10 @@
 import React from 'react'
 import { Box, Divider, Typography } from '@mui/material'
 import { useParams } from 'react-router-dom'
-import Select from 'react-select'
 import { GameService } from '../services'
 import VideoCards from '../components/admin/VideoCards'
+import GameVideosHeader from '../components/game/GameVideosHeader'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
-import selectSortTheme from '../common/reactSelectSortTheme'
 import { SORT_OPTIONS } from '../common/constants'
 import { formatDate } from '../common/utils'
 
@@ -71,29 +70,12 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
 
   return (
     <Box>
+      <GameVideosHeader
+        game={game}
+        sortOrder={sortOrder}
+        onSortChange={setSortOrder}
+      />
       <Box sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          {game?.logo_url && (
-            <Box
-              component="img"
-              src={game.logo_url}
-              sx={{
-                maxHeight: 80,
-                maxWidth: 300,
-                objectFit: 'contain',
-              }}
-            />
-          )}
-          <Select
-            value={sortOrder}
-            options={SORT_OPTIONS}
-            onChange={setSortOrder}
-            styles={selectSortTheme}
-            blurInputOnSelect
-            isSearchable={false}
-          />
-        </Box>
-        <Divider sx={{ mb: 3 }} />
 
         {sortedVideos.length === 0 && (
           <Typography color="text.secondary">No videos found for this game.</Typography>
