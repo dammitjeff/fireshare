@@ -23,7 +23,7 @@ import VideoList from '../components/admin/VideoList'
 import GameSearch from '../components/game/GameSearch'
 import { VideoService, GameService } from '../services'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
-import { getSetting, setSetting } from '../common/utils'
+import { getSetting, setSetting, formatDate } from '../common/utils'
 import Select from 'react-select'
 import SnackbarAlert from '../components/alert/SnackbarAlert'
 
@@ -35,16 +35,6 @@ const createSelectFolders = (folders) => {
   return folders.map((f) => ({ value: f, label: f }))
 }
 
-const formatDate = (isoString) => {
-  if (!isoString) return null
-  const date = new Date(isoString)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
-  const day = date.getDate()
-  const year = date.getFullYear()
-  return `${weekday}, ${month} ${day}, ${year}`
-}
-
 const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
   const [videos, setVideos] = React.useState([])
   const [search, setSearch] = React.useState(searchText)
@@ -54,15 +44,7 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
   const [selectedFolder, setSelectedFolder] = React.useState(
     getSetting('folder') || { value: 'All Videos', label: 'All Videos' },
   )
-  const [selectedSort, setSelectedSort] = React.useState(() => {
-    const saved = getSetting('sortOption')
-    // Validate that the saved option still exists
-    if (saved && SORT_OPTIONS.some(opt => opt.value === saved.value)) {
-      return saved
-    }
-    return SORT_OPTIONS[0]
-  })
-  const [dateSortOrder, setDateSortOrder] = React.useState({ value: 'newest', label: 'Newest' })
+  const [dateSortOrder, setDateSortOrder] = React.useState(SORT_OPTIONS?.[0] || { value: 'newest', label: 'Newest' })
 
   const [alert, setAlert] = React.useState({ open: false })
 
@@ -90,7 +72,7 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
   }
 
   function fetchVideos() {
-    VideoService.getVideos(selectedSort.value)
+    VideoService.getVideos()
       .then((res) => {
         setVideos(res.data.videos)
         setFilteredVideos(res.data.videos)
@@ -113,7 +95,7 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
         setAlert({
           open: true,
           type: 'error',
-          message: err.response?.data || 'Unknown Error',
+          message: typeof err.response?.data === 'string' ? err.response.data : 'Unknown Error',
         })
         console.log(err)
       })
@@ -122,16 +104,11 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
   React.useEffect(() => {
     fetchVideos()
     // eslint-disable-next-line
-  }, [selectedSort])
+  }, [])
 
   const handleFolderSelection = (folder) => {
     setSetting('folder', folder)
     setSelectedFolder(folder)
-  }
-
-  const handleSortSelection = (sortOption) => {
-    setSetting('sortOption', sortOption)
-    setSelectedSort(sortOption)
   }
 
   // Get the filtered videos based on folder selection
@@ -148,15 +125,21 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
     )
   }, [filteredVideos, selectedFolder])
 
-  // Sort videos by recorded date and group them
+  // Sort videos by recorded date or views, and group them
   const sortedAndGroupedVideos = React.useMemo(() => {
     if (!displayVideos) return {}
 
-    // Sort by recorded_at
+    // Sort based on selected option
     const sorted = [...displayVideos].sort((a, b) => {
-      const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
-      const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
-      return dateSortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
+      if (dateSortOrder.value === 'most_views') {
+        return (b.views || 0) - (a.views || 0)
+      } else if (dateSortOrder.value === 'least_views') {
+        return (a.views || 0) - (b.views || 0)
+      } else {
+        const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
+        const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
+        return dateSortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
+      }
     })
 
     // Group by date
@@ -328,19 +311,8 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
                     />
                   </Box>
                   <Select
-                    value={selectedSort}
-                    options={SORT_OPTIONS}
-                    onChange={handleSortSelection}
-                    styles={selectSortTheme}
-                    blurInputOnSelect
-                    isSearchable={false}
-                  />
-                  <Select
                     value={dateSortOrder}
-                    options={[
-                      { value: 'newest', label: 'Newest' },
-                      { value: 'oldest', label: 'Oldest' },
-                    ]}
+                    options={SORT_OPTIONS}
                     onChange={setDateSortOrder}
                     styles={selectSortTheme}
                     blurInputOnSelect
@@ -418,7 +390,7 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
                             mb: 2,
                             fontSize: 14,
                             fontWeight: 500,
-                            color: 'rgba(255, 255, 255, 0.7)',
+                            color: '#2d7cff',
                           }}
                         >
                           {formattedDate}

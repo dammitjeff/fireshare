@@ -6,28 +6,15 @@ import { GameService } from '../services'
 import VideoCards from '../components/admin/VideoCards'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
 import selectSortTheme from '../common/reactSelectSortTheme'
-
-const DATE_SORT_OPTIONS = [
-  { value: 'newest', label: 'Newest' },
-  { value: 'oldest', label: 'Oldest' },
-]
-
-const formatDate = (isoString) => {
-  if (!isoString) return null
-  const date = new Date(isoString)
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
-  const day = date.getDate()
-  const year = date.getFullYear()
-  return `${weekday}, ${month} ${day}, ${year}`
-}
+import { SORT_OPTIONS } from '../common/constants'
+import { formatDate } from '../common/utils'
 
 const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   const { gameId } = useParams()
   const [videos, setVideos] = React.useState([])
   const [game, setGame] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
-  const [sortOrder, setSortOrder] = React.useState(DATE_SORT_OPTIONS[0])
+  const [sortOrder, setSortOrder] = React.useState(SORT_OPTIONS?.[0] || { value: 'newest', label: 'Newest' })
 
   React.useEffect(() => {
     Promise.all([
@@ -55,9 +42,15 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   const sortedVideos = React.useMemo(() => {
     if (!videos || !Array.isArray(videos)) return []
     return [...videos].sort((a, b) => {
-      const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
-      const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
-      return sortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
+      if (sortOrder.value === 'most_views') {
+        return (b.views || 0) - (a.views || 0)
+      } else if (sortOrder.value === 'least_views') {
+        return (a.views || 0) - (b.views || 0)
+      } else {
+        const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
+        const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
+        return sortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
+      }
     })
   }, [videos, sortOrder])
 
@@ -93,7 +86,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
           )}
           <Select
             value={sortOrder}
-            options={DATE_SORT_OPTIONS}
+            options={SORT_OPTIONS}
             onChange={setSortOrder}
             styles={selectSortTheme}
             blurInputOnSelect

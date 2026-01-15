@@ -81,7 +81,7 @@ const VideoCards = ({
         item
         spacing={2}
         direction="column"
-        justifyContent="center"
+        justifyContent="flex-start"
         alignItems="center"
       >
         {!loadingIcon && (
@@ -114,7 +114,7 @@ const VideoCards = ({
         {loadingIcon}
       </Grid>
       {!loadingIcon && (
-        <Grid container justifyContent="center">
+        <Grid container justifyContent="flex-start">
           <UploadCard
             authenticated={authenticated}
             feedView={feedView}
@@ -148,7 +148,7 @@ const VideoCards = ({
 
       {(!vids || vids.length === 0) && EMPTY_STATE()}
       {vids && vids.length !== 0 && (
-        <Grid container justifyContent="center">
+        <Grid container justifyContent="flex-start">
           {showUploadCard && (
             <UploadCard
               authenticated={authenticated}
