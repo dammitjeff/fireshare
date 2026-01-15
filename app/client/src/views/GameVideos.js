@@ -1,11 +1,18 @@
 import React from 'react'
 import { Box, Divider, Typography } from '@mui/material'
 import { useParams } from 'react-router-dom'
+import Select from 'react-select'
 import { GameService } from '../services'
 import VideoCards from '../components/admin/VideoCards'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
+import selectSortTheme from '../common/reactSelectSortTheme'
 
-const formatDateGoogle = (isoString) => {
+const DATE_SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'oldest', label: 'Oldest' },
+]
+
+const formatDate = (isoString) => {
   if (!isoString) return null
   const date = new Date(isoString)
   const weekday = date.toLocaleDateString('en-US', { weekday: 'short' })
@@ -20,7 +27,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   const [videos, setVideos] = React.useState([])
   const [game, setGame] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
-  const [sortOrder, setSortOrder] = React.useState('newest')
+  const [sortOrder, setSortOrder] = React.useState(DATE_SORT_OPTIONS[0])
 
   React.useEffect(() => {
     Promise.all([
@@ -50,7 +57,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
     return [...videos].sort((a, b) => {
       const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
       const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
-      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB
+      return sortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
     })
   }, [videos, sortOrder])
 
@@ -84,14 +91,14 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
               }}
             />
           )}
-          <select
+          <Select
             value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value)}
-            style={{ padding: '8px', borderRadius: '4px' }}
-          >
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-          </select>
+            options={DATE_SORT_OPTIONS}
+            onChange={setSortOrder}
+            styles={selectSortTheme}
+            blurInputOnSelect
+            isSearchable={false}
+          />
         </Box>
         <Divider sx={{ mb: 3 }} />
 
@@ -100,7 +107,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
         )}
 
         {Object.entries(groupedVideos).map(([dateKey, dateVideos]) => {
-          const formattedDate = dateKey !== 'unknown' ? formatDateGoogle(dateKey) : 'Unknown Date'
+          const formattedDate = dateKey !== 'unknown' ? formatDate(dateKey) : 'Unknown Date'
 
           return (
             <Box key={dateKey} sx={{ mb: 4 }}>
