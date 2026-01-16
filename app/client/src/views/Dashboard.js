@@ -125,6 +125,9 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
     )
   }, [filteredVideos, selectedFolder])
 
+  // Check if sorting by views (no date grouping needed)
+  const isSortingByViews = dateSortOrder.value === 'most_views' || dateSortOrder.value === 'least_views'
+
   // Sort videos by recorded date or views, and group them
   const sortedAndGroupedVideos = React.useMemo(() => {
     if (!displayVideos) return {}
@@ -132,15 +135,20 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
     // Sort based on selected option
     const sorted = [...displayVideos].sort((a, b) => {
       if (dateSortOrder.value === 'most_views') {
-        return (b.views || 0) - (a.views || 0)
+        return (b.view_count || 0) - (a.view_count || 0)
       } else if (dateSortOrder.value === 'least_views') {
-        return (a.views || 0) - (b.views || 0)
+        return (a.view_count || 0) - (b.view_count || 0)
       } else {
         const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
         const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
         return dateSortOrder.value === 'newest' ? dateB - dateA : dateA - dateB
       }
     })
+
+    // Skip date grouping when sorting by views
+    if (dateSortOrder.value === 'most_views' || dateSortOrder.value === 'least_views') {
+      return { all: sorted }
+    }
 
     // Group by date
     const groups = {}
@@ -379,7 +387,19 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
               {listStyle === 'card' && (
                 <Box sx={{ px: 1 }}>
                   {loading && <LoadingSpinner />}
-                  {!loading && Object.entries(sortedAndGroupedVideos).map(([dateKey, dateVideos], index) => {
+                  {!loading && isSortingByViews && sortedAndGroupedVideos.all && (
+                    <VideoCards
+                      videos={sortedAndGroupedVideos.all}
+                      authenticated={authenticated}
+                      size={cardSize}
+                      showUploadCard={selectedFolder.value === 'All Videos'}
+                      fetchVideos={fetchVideos}
+                      editMode={editMode}
+                      selectedVideos={selectedVideos}
+                      onVideoSelect={handleVideoSelect}
+                    />
+                  )}
+                  {!loading && !isSortingByViews && Object.entries(sortedAndGroupedVideos).map(([dateKey, dateVideos], index) => {
                     const formattedDate = dateKey !== 'unknown' ? formatDate(dateKey) : 'Unknown Date'
                     const isFirst = index === 0
                     return (

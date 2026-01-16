@@ -38,13 +38,16 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
       .catch((err) => console.error(err))
   }
 
+  // Check if sorting by views (no date grouping needed)
+  const isSortingByViews = sortOrder.value === 'most_views' || sortOrder.value === 'least_views'
+
   const sortedVideos = React.useMemo(() => {
     if (!videos || !Array.isArray(videos)) return []
     return [...videos].sort((a, b) => {
       if (sortOrder.value === 'most_views') {
-        return (b.views || 0) - (a.views || 0)
+        return (b.view_count || 0) - (a.view_count || 0)
       } else if (sortOrder.value === 'least_views') {
-        return (a.views || 0) - (b.views || 0)
+        return (a.view_count || 0) - (b.view_count || 0)
       } else {
         const dateA = a.recorded_at ? new Date(a.recorded_at) : new Date(0)
         const dateB = b.recorded_at ? new Date(b.recorded_at) : new Date(0)
@@ -54,6 +57,9 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
   }, [videos, sortOrder])
 
   const groupedVideos = React.useMemo(() => {
+    // Skip grouping when sorting by views
+    if (isSortingByViews) return { all: sortedVideos }
+
     const groups = {}
     sortedVideos.forEach((video) => {
       // Use just the date part (YYYY-MM-DD) for grouping, not the full timestamp
@@ -64,7 +70,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
       groups[dateKey].push(video)
     })
     return groups
-  }, [sortedVideos])
+  }, [sortedVideos, isSortingByViews])
 
   if (loading) return <LoadingSpinner />
 
@@ -81,7 +87,17 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
           <Typography color="text.secondary">No videos found for this game.</Typography>
         )}
 
-        {Object.entries(groupedVideos).map(([dateKey, dateVideos]) => {
+        {isSortingByViews && groupedVideos.all && (
+          <VideoCards
+            videos={groupedVideos.all}
+            authenticated={authenticated}
+            size={cardSize}
+            feedView={false}
+            fetchVideos={fetchVideos}
+          />
+        )}
+
+        {!isSortingByViews && Object.entries(groupedVideos).map(([dateKey, dateVideos]) => {
           const formattedDate = dateKey !== 'unknown' ? formatDate(dateKey) : 'Unknown Date'
 
           return (
@@ -91,7 +107,7 @@ const GameVideos = ({ cardSize, listStyle, authenticated }) => {
                   mb: 2,
                   fontSize: 14,
                   fontWeight: 500,
-                  color: 'rgba(255, 255, 255, 0.7)',
+                  color: '#2d7cff',
                 }}
               >
                 {formattedDate}

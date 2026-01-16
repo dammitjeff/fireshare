@@ -19,7 +19,7 @@ const GameVideosHeader = ({ game, sortOrder, onSortChange, height = 200 }) => (
         sx={{
           position: 'absolute',
           inset: 0,
-          backgroundImage: `url(/api/game/assets/${game.steamgriddb_id}/hero_2.png)`,
+          backgroundImage: `url(/api/game/assets/${game.steamgriddb_id}/hero_2.png?fallback=hero_1)`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',

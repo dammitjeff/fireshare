@@ -8,6 +8,7 @@ import { VideoService } from '../../services'
 import UploadCard from './UploadCard'
 
 const VideoCards = ({
+  CardComponent,
   videos,
   loadingIcon = null,
   feedView = false,
@@ -162,6 +163,7 @@ const VideoCards = ({
           {vids.map((v) => (
             <VisibilityCard
               key={v.path + v.video_id}
+              CardComponent={CardComponent}
               video={v}
               handleAlert={memoizedHandleAlert}
               openVideo={openVideo}

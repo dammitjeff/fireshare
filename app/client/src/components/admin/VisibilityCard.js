@@ -4,6 +4,7 @@ import { Grid } from '@mui/material'
 import CompactVideoCard from './CompactVideoCard'
 
 const VisibilityCard = ({
+  CardComponent = CompactVideoCard,
   video,
   openVideo,
   handleAlert,
@@ -24,7 +25,7 @@ const VisibilityCard = ({
   return (
     <Grid item sx={{ width: cardWidth, ml: 0.75, mr: 0.75, mb: 1.5 }} ref={nodeRef}>
       {isVisible ? (
-        <CompactVideoCard
+        <CardComponent
           visible={false}
           video={video}
           openVideoHandler={openVideo}

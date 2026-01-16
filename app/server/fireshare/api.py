@@ -908,6 +908,14 @@ def unlink_video_from_game(video_id):
 
     return Response(status=204)
 
+def find_asset_with_extensions(asset_dir, base_name):
+    """Try to find an asset file with any supported extension."""
+    for ext in ['.png', '.jpg', '.jpeg', '.webp']:
+        path = asset_dir / f'{base_name}{ext}'
+        if path.exists():
+            return path
+    return None
+
 @api.route('/api/game/assets/<int:steamgriddb_id>/<filename>')
 def get_game_asset(steamgriddb_id, filename):
     # Validate filename to prevent path traversal
@@ -915,19 +923,31 @@ def get_game_asset(steamgriddb_id, filename):
         return Response(status=400, response='Invalid filename.')
 
     paths = current_app.config['PATHS']
+    asset_dir = paths['data'] / 'game_assets' / str(steamgriddb_id)
+    base_name = filename.rsplit('.', 1)[0]
+
+    # Optional fallback parameter (e.g., ?fallback=hero_1)
+    fallback = request.args.get('fallback')
+    if fallback and not re.match(r'^(hero_[12]|logo_1|icon_1)$', fallback):
+        fallback = None  # Invalid fallback, ignore it
+
     asset_path = paths['data'] / 'game_assets' / str(steamgriddb_id) / filename
 
+    # Try exact filename first
     if not asset_path.exists():
-        # Try other extensions if the requested one doesn't exist
-        base_name = filename.rsplit('.', 1)[0]
-        asset_dir = paths['data'] / 'game_assets' / str(steamgriddb_id)
-
+        # Try other extensions for the requested asset
         if asset_dir.exists():
-            for ext in ['.png', '.jpg', '.jpeg', '.webp']:
-                alternative_path = asset_dir / f'{base_name}{ext}'
-                if alternative_path.exists():
-                    asset_path = alternative_path
-                    break
+            found = find_asset_with_extensions(asset_dir, base_name)
+            if found:
+                asset_path = found
+
+    # If still not found and fallback is specified, try the fallback asset
+    if not asset_path.exists() and fallback:
+        logger.info(f"{base_name} not found for game {steamgriddb_id}, trying fallback: {fallback}")
+        if asset_dir.exists():
+            found = find_asset_with_extensions(asset_dir, fallback)
+            if found:
+                asset_path = found
 
     # If asset still doesn't exist, try to re-download from SteamGridDB
     if not asset_path.exists():
@@ -943,15 +963,17 @@ def get_game_asset(steamgriddb_id, filename):
 
             if result.get('success'):
                 logger.info(f"Assets downloaded for game {steamgriddb_id}: {result.get('assets')}")
-                # Try to find the file again after re-download
-                base_name = filename.rsplit('.', 1)[0]
-                asset_dir = paths['data'] / 'game_assets' / str(steamgriddb_id)
-                for ext in ['.png', '.jpg', '.jpeg', '.webp']:
-                    alternative_path = asset_dir / f'{base_name}{ext}'
-                    if alternative_path.exists():
-                        asset_path = alternative_path
-                        logger.info(f"Found {alternative_path.name}")
-                        break
+                # Try to find the requested file after re-download
+                found = find_asset_with_extensions(asset_dir, base_name)
+                if found:
+                    asset_path = found
+                    logger.info(f"Found {asset_path.name}")
+                # If still not found, try fallback after re-download
+                elif fallback:
+                    found = find_asset_with_extensions(asset_dir, fallback)
+                    if found:
+                        asset_path = found
+                        logger.info(f"Found fallback {asset_path.name}")
             else:
                 logger.error(f"Download failed for game {steamgriddb_id}: {result.get('error')}")
         else:
@@ -983,6 +1005,9 @@ def get_game_videos(steamgriddb_id):
 
     videos_json = []
     for link in game.videos:
+        if not link.video:
+            continue  # Skip orphaned links
+
         if not current_user.is_authenticated:
             # Only show available, non-private videos to public users
             if not link.video.available:
