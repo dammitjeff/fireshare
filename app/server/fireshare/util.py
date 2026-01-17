@@ -6,6 +6,21 @@ import xxhash
 from fireshare import logger
 import time
 import glob
+import shutil
+
+# Corruption indicators to detect during video validation
+# These are ffmpeg error messages that indicate file corruption
+VIDEO_CORRUPTION_INDICATORS = [
+    "Corrupt frame detected",
+    "No sequence header",
+    "Error submitting packet to decoder",
+    "Invalid data found when processing input",
+    "Decode error rate",
+    "moov atom not found",
+    "Invalid NAL unit size",
+    "non-existing PPS",
+    "Could not find codec parameters",
+]
 
 def lock_exists(path: Path):
     """
@@ -87,6 +102,12 @@ def validate_video_file(path, timeout=30):
             - (True, None) if the video is valid
             - (False, error_message) if the video is corrupt or unreadable
     """
+    # Check if ffprobe and ffmpeg are available using shutil.which
+    if not shutil.which('ffprobe'):
+        return False, "ffprobe command not found - ensure ffmpeg is installed"
+    if not shutil.which('ffmpeg'):
+        return False, "ffmpeg command not found - ensure ffmpeg is installed"
+    
     try:
         # First, check if ffprobe can read the stream information
         probe_cmd = [
@@ -121,42 +142,33 @@ def validate_video_file(path, timeout=30):
         
         decode_result = sp.run(decode_cmd, capture_output=True, text=True, timeout=timeout)
         
-        # Check for decode errors
-        if decode_result.returncode != 0 or decode_result.stderr:
-            stderr = decode_result.stderr.strip() if decode_result.stderr else ""
-            
-            # Look for specific corruption indicators
-            corruption_indicators = [
-                "Corrupt frame detected",
-                "No sequence header",
-                "Error submitting packet to decoder",
-                "Invalid data found when processing input",
-                "Decode error rate",
-                "moov atom not found",
-                "Invalid NAL unit size",
-                "non-existing PPS",
-                "Could not find codec parameters",
-            ]
-            
-            for indicator in corruption_indicators:
+        # Check for decode errors - only treat as error if return code is non-zero
+        # or if stderr contains known corruption indicators
+        stderr = decode_result.stderr.strip() if decode_result.stderr else ""
+        
+        if decode_result.returncode != 0:
+            # Decode failed - check for specific corruption indicators
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
                 if indicator.lower() in stderr.lower():
                     return False, f"Video file appears to be corrupt: {indicator}"
-            
-            # If there's stderr output but return code is 0, it might just be warnings
-            if decode_result.returncode != 0:
-                return False, f"Decode test failed: {stderr[:200] if stderr else 'Unknown error'}"
+            # Generic decode failure
+            return False, f"Decode test failed: {stderr[:200] if stderr else 'Unknown error'}"
+        
+        # Return code is 0, but check for corruption indicators in warnings
+        # These are serious enough to indicate corruption even if ffmpeg "succeeded"
+        for indicator in VIDEO_CORRUPTION_INDICATORS:
+            if indicator.lower() in stderr.lower():
+                return False, f"Video file appears to be corrupt: {indicator}"
         
         return True, None
         
     except sp.TimeoutExpired:
         return False, f"Validation timed out after {timeout} seconds"
-    except FileNotFoundError as e:
-        # Check if ffprobe/ffmpeg is not found vs the video file
-        if e.filename in ('ffprobe', 'ffmpeg'):
-            return False, f"{e.filename} command not found - ensure ffmpeg is installed"
+    except FileNotFoundError:
         return False, "Video file not found"
     except Exception as ex:
         return False, f"Validation error: {str(ex)}"
+
 
 
 def calculate_transcode_timeout(video_path, base_timeout=7200):
