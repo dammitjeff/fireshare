@@ -9,6 +9,9 @@ const StatsService = {
       console.error('Failed to fetch folder size:', error);
       throw error;
     }
+  },
+  getGameScanStatus() {
+    return Api().get('/api/scan-games/status');
   }
 };
 

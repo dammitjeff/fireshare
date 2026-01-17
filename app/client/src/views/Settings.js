@@ -92,17 +92,26 @@ const Settings = ({ authenticated }) => {
   const handleScanGames = async () => {
     try {
       const response = await VideoService.scanGames()
-      setAlert({
-        open: true,
-        type: 'success',
-        message: `Game scan complete! Created ${response.data.suggestions_created} suggestions from ${response.data.total_videos} videos.`,
-      })
+      if (response.status === 202) {
+        // Scan started successfully
+        localStorage.setItem('gameScanInProgress', 'true')
+        // Dispatch storage event for same-tab updates
+        window.dispatchEvent(new StorageEvent('storage', { key: 'gameScanInProgress' }))
+      }
     } catch (err) {
-      setAlert({
-        open: true,
-        type: 'error',
-        message: err.response?.data?.error || 'Failed to scan videos for games',
-      })
+      if (err.response?.status === 409) {
+        setAlert({
+          open: true,
+          type: 'warning',
+          message: 'A game scan is already in progress.',
+        })
+      } else {
+        setAlert({
+          open: true,
+          type: 'error',
+          message: err.response?.data?.error || 'Failed to start game scan',
+        })
+      }
     }
   }
 

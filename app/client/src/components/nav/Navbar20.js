@@ -43,6 +43,7 @@ import LightTooltip from '../misc/LightTooltip'
 import SnackbarAlert from '../alert/SnackbarAlert'
 import { getSetting, setSetting } from '../../common/utils'
 import SliderWrapper from '../misc/SliderWrapper'
+import GameScanStatus from './GameScanStatus'
 
 const drawerWidth = 240
 const minimizedDrawerWidth = 57
@@ -211,6 +212,15 @@ function Navbar20({
     fetchFolderSize();
   }, []);
 
+  // Game scan complete handler
+  const handleGameScanComplete = React.useCallback((data) => {
+    setAlert({
+      open: true,
+      type: 'success',
+      message: `Game scan complete! Found ${data.suggestions_created} suggestions from ${data.total} videos.`,
+    });
+  }, []);
+
   const drawer = (
     <div>
       <Toolbar
@@ -302,6 +312,7 @@ function Navbar20({
       )}
       <Divider />
       <Box sx={{ width: '100%', bottom: 0, position: 'absolute' }}>
+        <GameScanStatus open={open} onComplete={handleGameScanComplete} />
         <List sx={{ pl: 1, pr: 1 }}>
           {authenticated && (
             <ListItem disablePadding>
@@ -448,10 +459,8 @@ function Navbar20({
               }}
             /> }
           </Box>
-          
+
         )}
-
-
 
         {open ? (
           <Box
