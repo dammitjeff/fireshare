@@ -3,6 +3,7 @@ import os, re, string
 import shutil
 import random
 import logging
+import threading
 from subprocess import Popen
 from textwrap import indent
 from flask import Blueprint, render_template, request, Response, jsonify, current_app, send_file, redirect
@@ -29,6 +30,15 @@ templates_path = os.environ.get('TEMPLATE_PATH') or 'templates'
 api = Blueprint('api', __name__, template_folder=templates_path)
 
 CORS(api, supports_credentials=True)
+
+# Global state for tracking game scan progress
+_game_scan_state = {
+    'is_running': False,
+    'current': 0,
+    'total': 0,
+    'suggestions_created': 0,
+    'lock': threading.Lock()
+}
 
 def get_steamgriddb_api_key():
     """
@@ -142,51 +152,89 @@ def manual_scan():
         Popen(["fireshare", "bulk-import"], shell=False)
     return Response(status=200)
 
+@api.route('/api/scan-games/status')
+@login_required
+def get_game_scan_status():
+    """Return current game scan progress"""
+    return jsonify({
+        'is_running': _game_scan_state['is_running'],
+        'current': _game_scan_state['current'],
+        'total': _game_scan_state['total'],
+        'suggestions_created': _game_scan_state['suggestions_created']
+    })
+
 @api.route('/api/manual/scan-games')
 @login_required
 def manual_scan_games():
-    """Scan all videos for game detection and create suggestions"""
+    """Start game scan in background thread"""
     from fireshare import util
     from fireshare.cli import save_game_suggestion, _load_suggestions
 
-    try:
-        steamgriddb_api_key = get_steamgriddb_api_key()
+    # Check if already running
+    with _game_scan_state['lock']:
+        if _game_scan_state['is_running']:
+            return jsonify({'already_running': True}), 409
+        _game_scan_state['is_running'] = True
+        _game_scan_state['current'] = 0
+        _game_scan_state['total'] = 0
+        _game_scan_state['suggestions_created'] = 0
 
-        # Get all videos
-        videos = Video.query.join(VideoInfo).all()
-        suggestions_created = 0
+    # Get app context for background thread
+    app = current_app._get_current_object()
 
-        # Load existing suggestions to avoid duplicates
-        existing_suggestions = _load_suggestions()
+    def run_scan():
+        with app.app_context():
+            try:
+                steamgriddb_api_key = get_steamgriddb_api_key()
 
-        for video in videos:
-            # Skip if already has a game linked
-            existing_link = VideoGameLink.query.filter_by(video_id=video.video_id).first()
-            if existing_link:
-                continue
+                # Get all videos
+                videos = Video.query.join(VideoInfo).all()
 
-            # Skip if already has a suggestion
-            if video.video_id in existing_suggestions:
-                continue
+                # Load existing suggestions and linked videos upfront (single queries)
+                existing_suggestions = _load_suggestions()
+                linked_video_ids = {link.video_id for link in VideoGameLink.query.all()}
 
-            # Try to detect game from filename
-            filename = Path(video.path).stem
-            detected_game = util.detect_game_from_filename(filename, steamgriddb_api_key)
+                # Filter to only videos that need processing
+                videos_to_process = [
+                    video for video in videos
+                    if video.video_id not in linked_video_ids
+                    and video.video_id not in existing_suggestions
+                ]
 
-            if detected_game and detected_game['confidence'] >= 0.65:
-                save_game_suggestion(video.video_id, detected_game)
-                suggestions_created += 1
-                logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']}")
+                # Set total immediately so frontend shows accurate count
+                _game_scan_state['total'] = len(videos_to_process)
 
-        return jsonify({
-            'success': True,
-            'total_videos': len(videos),
-            'suggestions_created': suggestions_created
-        }), 200
+                # If nothing to process, we're done
+                if not videos_to_process:
+                    logger.info("Game scan complete: no videos to process")
+                    return
+                suggestions_created = 0
 
-    except Exception as e:
-        logger.error(f"Error scanning videos for games: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+                for i, video in enumerate(videos_to_process):
+                    _game_scan_state['current'] = i + 1
+
+                    # Try to detect game from filename
+                    filename = Path(video.path).stem
+                    detected_game = util.detect_game_from_filename(filename, steamgriddb_api_key)
+
+                    if detected_game and detected_game['confidence'] >= 0.65:
+                        save_game_suggestion(video.video_id, detected_game)
+                        suggestions_created += 1
+                        _game_scan_state['suggestions_created'] = suggestions_created
+                        logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']}")
+
+                logger.info(f"Game scan complete: {suggestions_created} suggestions created from {len(videos_to_process)} videos")
+
+            except Exception as e:
+                logger.error(f"Error scanning videos for games: {e}")
+            finally:
+                _game_scan_state['is_running'] = False
+
+    thread = threading.Thread(target=run_scan)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'started': True}), 202
 
 @api.route('/api/videos')
 @login_required
@@ -893,6 +941,9 @@ def get_game_videos(steamgriddb_id):
 
     videos_json = []
     for link in game.videos:
+        if not link.video:
+            continue
+
         if not current_user.is_authenticated:
             # Only show available, non-private videos to public users
             if not link.video.available:
