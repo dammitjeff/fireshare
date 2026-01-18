@@ -25,7 +25,7 @@ VIDEO_CORRUPTION_INDICATORS = [
 # Corruption indicators that are known false positives for AV1 files
 # These warnings can occur during initial frame decoding of valid AV1 files
 # and should be ignored if the decode test succeeds (returncode 0)
-# This is a subset of VIDEO_CORRUPTION_INDICATORS
+# Note: Values are lowercase for consistent case-insensitive matching
 AV1_FALSE_POSITIVE_INDICATORS = frozenset([
     "corrupt frame detected",
     "no sequence header",
@@ -35,7 +35,7 @@ AV1_FALSE_POSITIVE_INDICATORS = frozenset([
     "non-existing pps",
 ])
 
-# Known AV1 codec names as reported by ffprobe
+# Known AV1 codec names as reported by ffprobe (lowercase for matching)
 # These are used to detect AV1-encoded source files for special handling
 AV1_CODEC_NAMES = frozenset([
     'av1',
@@ -150,7 +150,7 @@ def validate_video_file(path, timeout=30):
             return False, f"ffprobe failed: {error_msg}"
         
         # Check if we got valid stream data
-        # Note: -select_streams v:0 ensures only video streams are returned
+        # Note: -select_streams v:0 in probe_cmd ensures only video streams are returned
         try:
             probe_data = json.loads(probe_result.stdout)
             streams = probe_data.get('streams', [])
@@ -159,8 +159,8 @@ def validate_video_file(path, timeout=30):
         except json.JSONDecodeError:
             return False, "Failed to parse video metadata"
         
-        # Get the codec name from the first (and only) video stream
-        # We use -select_streams v:0 so this is guaranteed to be the first video stream
+        # Get the codec name from the video stream
+        # Safe to access streams[0] because we checked for empty streams above
         video_stream = streams[0]
         codec_name = video_stream.get('codec_name', '').lower()
         
