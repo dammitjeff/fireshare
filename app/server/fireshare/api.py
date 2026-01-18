@@ -341,6 +341,9 @@ def manual_scan_games():
             except Exception as e:
                 logger.error(f"Error scanning videos for games: {e}")
             finally:
+                # Brief delay so frontend can display the completed status before hiding
+                import time
+                time.sleep(2)
                 _game_scan_state['is_running'] = False
 
     thread = threading.Thread(target=run_scan)

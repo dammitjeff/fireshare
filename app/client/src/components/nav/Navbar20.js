@@ -217,7 +217,9 @@ function Navbar20({
     setAlert({
       open: true,
       type: 'success',
-      message: `Game scan complete! Found ${data.suggestions_created} suggestions from ${data.total} videos.`,
+      message: data.total > 0
+        ? `Game scan complete! Found ${data.suggestions_created} suggestions from ${data.total} videos.`
+        : 'Game scan complete!',
     });
   }, []);
 
