@@ -22,6 +22,29 @@ VIDEO_CORRUPTION_INDICATORS = [
     "Could not find codec parameters",
 ]
 
+# Corruption indicators that are known false positives for AV1 files
+# These warnings can occur during initial frame decoding of valid AV1 files
+# and should be ignored if the decode test succeeds (returncode 0)
+# Note: Values are lowercase for consistent case-insensitive matching
+AV1_FALSE_POSITIVE_INDICATORS = frozenset([
+    "corrupt frame detected",
+    "no sequence header",
+    "error submitting packet to decoder",
+    "decode error rate",
+    "invalid nal unit size",
+    "non-existing pps",
+])
+
+# Known AV1 codec names as reported by ffprobe (lowercase for matching)
+# These are used to detect AV1-encoded source files for special handling
+AV1_CODEC_NAMES = frozenset([
+    'av1',
+    'libaom-av1',
+    'libsvtav1',
+    'av1_nvenc',
+    'av1_qsv',
+])
+
 def lock_exists(path: Path):
     """
     Checks if a lockfile currently exists
@@ -93,6 +116,9 @@ def validate_video_file(path, timeout=30):
     This function performs a quick decode test on the first few seconds of the video
     to detect corruption issues like missing sequence headers, corrupt frames, etc.
     
+    For AV1 files, validation is more lenient as some AV1 encoders produce files
+    that generate warnings during initial frame decoding but play back correctly.
+    
     Args:
         path: Path to the video file
         timeout: Maximum time in seconds to wait for validation (default: 30)
@@ -124,12 +150,23 @@ def validate_video_file(path, timeout=30):
             return False, f"ffprobe failed: {error_msg}"
         
         # Check if we got valid stream data
+        # Note: -select_streams v:0 in probe_cmd ensures only video streams are returned
         try:
             probe_data = json.loads(probe_result.stdout)
-            if not probe_data.get('streams') or len(probe_data['streams']) == 0:
+            streams = probe_data.get('streams', [])
+            if not streams:
                 return False, "No video streams found in file"
         except json.JSONDecodeError:
             return False, "Failed to parse video metadata"
+        
+        # Get the codec name from the video stream
+        # Safe to access streams[0] because we checked for empty streams above
+        video_stream = streams[0]
+        codec_name = video_stream.get('codec_name', '').lower()
+        
+        # Detect if the source file is AV1-encoded
+        # AV1 files may produce false positive corruption warnings during initial frame decoding
+        is_av1_source = codec_name in AV1_CODEC_NAMES
         
         # Now perform a quick decode test by decoding the first 2 seconds
         # This catches issues like "No sequence header" or "Corrupt frame detected"
@@ -145,20 +182,36 @@ def validate_video_file(path, timeout=30):
         # Check for decode errors - only treat as error if return code is non-zero
         # or if stderr contains known corruption indicators
         stderr = decode_result.stderr.strip() if decode_result.stderr else ""
+        stderr_lower = stderr.lower()
         
         if decode_result.returncode != 0:
             # Decode failed - check for specific corruption indicators
             for indicator in VIDEO_CORRUPTION_INDICATORS:
-                if indicator.lower() in stderr.lower():
+                if indicator.lower() in stderr_lower:
                     return False, f"Video file appears to be corrupt: {indicator}"
             # Generic decode failure
             return False, f"Decode test failed: {stderr[:200] if stderr else 'Unknown error'}"
         
-        # Return code is 0, but check for corruption indicators in warnings
-        # These are serious enough to indicate corruption even if ffmpeg "succeeded"
-        for indicator in VIDEO_CORRUPTION_INDICATORS:
-            if indicator.lower() in stderr.lower():
-                return False, f"Video file appears to be corrupt: {indicator}"
+        # Return code is 0 (success), but check for corruption indicators in warnings
+        # For AV1 files, be more lenient - if ffmpeg succeeded (returncode 0), 
+        # don't fail on warnings that are known false positives for AV1
+        if is_av1_source:
+            # For AV1 files, only fail on indicators that are NOT known false positives
+            # Check each corruption indicator, but skip known false positives for AV1
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
+                indicator_lower = indicator.lower()
+                if indicator_lower in AV1_FALSE_POSITIVE_INDICATORS:
+                    continue  # Skip known false positives for AV1
+                if indicator_lower in stderr_lower:
+                    return False, f"Video file appears to be corrupt: {indicator}"
+            # Log a debug message if we're ignoring warnings for AV1
+            if stderr:
+                logger.debug(f"AV1 file had warnings during validation (ignoring since decode succeeded): {stderr[:100]}")
+        else:
+            # For non-AV1 files, check all corruption indicators as before
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
+                if indicator.lower() in stderr_lower:
+                    return False, f"Video file appears to be corrupt: {indicator}"
         
         return True, None
         
@@ -435,7 +488,10 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
         timeout_seconds: Maximum time allowed for encoding (default: calculated based on video duration)
     
     Returns:
-        bool: True if transcoding succeeded, False if all encoders failed
+        tuple: (success: bool, failure_reason: str or None)
+            - (True, None) if transcoding succeeded
+            - (False, 'corruption') if source file appears corrupt
+            - (False, 'encoders') if all encoders failed
     """
     global _working_encoder_cache
     s = time.time()
@@ -446,7 +502,7 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     if not is_valid:
         logger.error(f"Source video validation failed: {error_msg}")
         logger.warning("Skipping transcoding for this video due to file corruption or read errors")
-        return False
+        return (False, 'corruption')
     
     # Calculate smart timeout based on video duration if not provided
     if timeout_seconds is None:
@@ -475,7 +531,7 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
             if result.returncode == 0:
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
-                return True
+                return (True, None)
             else:
                 # Cached encoder failed - clear cache and fall through to try all encoders
                 logger.warning(f"Cached encoder {encoder['name']} failed with exit code {result.returncode}")
@@ -605,7 +661,7 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
                 _working_encoder_cache[mode] = encoder
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
-                return True
+                return (True, None)
             else:
                 logger.warning(f"✗ {encoder['name']} failed with exit code {result.returncode}")
                 last_exception = Exception(f"Transcode failed with exit code {result.returncode}")
@@ -643,9 +699,9 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     if last_exception:
         logger.error(f"Last error was: {last_exception}")
     
-    # Return False to indicate failure instead of raising exception
+    # Return failure with 'encoders' reason to indicate encoder failure (not corruption)
     # This allows the calling code to continue processing other videos
-    return False
+    return (False, 'encoders')
 
 def create_boomerang_preview(video_path, out_path, clip_duration=1.5):
     # https://stackoverflow.com/questions/65874316/trim-a-video-and-add-the-boomerang-effect-on-it-with-ffmpeg
