@@ -22,6 +22,18 @@ VIDEO_CORRUPTION_INDICATORS = [
     "Could not find codec parameters",
 ]
 
+# Corruption indicators that are known false positives for AV1 files
+# These warnings can occur during initial frame decoding of valid AV1 files
+# and should be ignored if the decode test succeeds (returncode 0)
+AV1_FALSE_POSITIVE_INDICATORS = [
+    "Corrupt frame detected",
+    "No sequence header",
+    "Error submitting packet to decoder",
+    "Decode error rate",
+    "Invalid NAL unit size",
+    "non-existing PPS",
+]
+
 def lock_exists(path: Path):
     """
     Checks if a lockfile currently exists
@@ -127,16 +139,22 @@ def validate_video_file(path, timeout=30):
             return False, f"ffprobe failed: {error_msg}"
         
         # Check if we got valid stream data
+        # Note: -select_streams v:0 ensures only video streams are returned
         try:
             probe_data = json.loads(probe_result.stdout)
-            if not probe_data.get('streams') or len(probe_data['streams']) == 0:
+            streams = probe_data.get('streams', [])
+            if not streams:
                 return False, "No video streams found in file"
         except json.JSONDecodeError:
             return False, "Failed to parse video metadata"
         
+        # Get the codec name from the first (and only) video stream
+        # We use -select_streams v:0 so this is guaranteed to be the first video stream
+        video_stream = streams[0]
+        codec_name = video_stream.get('codec_name', '').lower()
+        
         # Detect if the source file is AV1-encoded
         # AV1 files may produce false positive corruption warnings during initial frame decoding
-        codec_name = probe_data['streams'][0].get('codec_name', '').lower()
         is_av1_source = codec_name in ('av1', 'libaom-av1', 'libsvtav1', 'av1_nvenc', 'av1_qsv')
         
         # Now perform a quick decode test by decoding the first 2 seconds
@@ -166,14 +184,11 @@ def validate_video_file(path, timeout=30):
         # For AV1 files, be more lenient - if ffmpeg succeeded (returncode 0), 
         # don't fail on warnings that are known false positives for AV1
         if is_av1_source:
-            # For AV1 files, only fail on the most severe indicators when decode succeeded
-            # "Corrupt frame detected" and "No sequence header" are common false positives for AV1
-            severe_indicators = [
-                "moov atom not found",
-                "Invalid data found when processing input",
-                "Could not find codec parameters",
-            ]
-            for indicator in severe_indicators:
+            # For AV1 files, only fail on indicators that are NOT known false positives
+            # Check each corruption indicator, but skip known false positives for AV1
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
+                if indicator in AV1_FALSE_POSITIVE_INDICATORS:
+                    continue  # Skip known false positives for AV1
                 if indicator.lower() in stderr.lower():
                     return False, f"Video file appears to be corrupt: {indicator}"
             # Log a debug message if we're ignoring warnings for AV1
