@@ -247,19 +247,17 @@ function Navbar20({
         : 'Game scan complete!',
     });
 
-    // Fetch folder suggestions and show dialog if any exist
+    await new Promise(resolve => setTimeout(resolve, 500))
+
     try {
       console.log('[Navbar20] Fetching folder suggestions...')
       const res = await GameService.getFolderSuggestions()
       const suggestions = res.data
       console.log('[Navbar20] Folder suggestions response:', suggestions)
-      console.log('[Navbar20] Number of folder suggestions:', Object.keys(suggestions).length)
       if (Object.keys(suggestions).length > 0) {
-        console.log('[Navbar20] Setting folder suggestions and opening dialog for:', Object.keys(suggestions)[0])
+        console.log('[Navbar20] Setting folder suggestions for:', Object.keys(suggestions)[0])
         setFolderSuggestions(suggestions)
         setCurrentSuggestionFolder(Object.keys(suggestions)[0])
-      } else {
-        console.log('[Navbar20] No folder suggestions to show')
       }
     } catch (err) {
       console.error('[Navbar20] Error fetching folder suggestions:', err)

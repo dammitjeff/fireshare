@@ -340,29 +340,33 @@ def manual_scan_games():
                 # Load existing suggestions and linked videos upfront (single queries)
                 existing_suggestions = _load_suggestions()
                 linked_video_ids = {link.video_id for link in VideoGameLink.query.all()}
-                logger.info(f"Existing suggestions: {len(existing_suggestions)} individual, {len(existing_suggestions.get('_folders', {}))} folders")
+                existing_folder_suggestions = existing_suggestions.get('_folders', {})
+                logger.info(f"Existing suggestions: {len(existing_suggestions) - 1 if '_folders' in existing_suggestions else len(existing_suggestions)} individual, {len(existing_folder_suggestions)} folders")
                 logger.info(f"Already linked videos: {len(linked_video_ids)}")
 
-                # Filter to only videos that need processing
-                videos_to_process = [
-                    video for video in videos
-                    if video.video_id not in linked_video_ids
-                    and video.video_id not in existing_suggestions
+                # Get all unlinked videos for folder grouping
+                unlinked_videos = [v for v in videos if v.video_id not in linked_video_ids]
+                logger.info(f"Unlinked videos for folder grouping: {len(unlinked_videos)}")
+
+                # Videos needing individual suggestions (not linked and no existing suggestion)
+                videos_needing_suggestions = [
+                    video for video in unlinked_videos
+                    if video.video_id not in existing_suggestions
                 ]
-                logger.info(f"Videos to process after filtering: {len(videos_to_process)}")
+                logger.info(f"Videos needing individual suggestions: {len(videos_needing_suggestions)}")
 
-                # Set total immediately so frontend shows accurate count
-                _game_scan_state['total'] = len(videos_to_process)
+                # Set total for progress tracking
+                _game_scan_state['total'] = len(unlinked_videos)
 
-                # If nothing to process, we're done
-                if not videos_to_process:
-                    logger.info("Game scan complete: no videos to process")
+                # If nothing unlinked, we're done
+                if not unlinked_videos:
+                    logger.info("Game scan complete: no unlinked videos to process")
                     return
                 suggestions_created = 0
 
-                # Group videos by top-level folder for folder suggestions
+                # Group ALL unlinked videos by folder (not just those without suggestions)
                 folder_videos = {}
-                for video in videos_to_process:
+                for video in unlinked_videos:
                     parts = video.path.split('/')
                     folder = parts[0] if len(parts) > 1 else None
                     if folder:
@@ -413,8 +417,8 @@ def manual_scan_games():
                     from fireshare.cli import _save_suggestions
                     _save_suggestions(existing_suggestions)
 
-                # Process remaining individual videos (not in folder suggestions)
-                for i, video in enumerate(videos_to_process):
+                # Process remaining individual videos (not in folder suggestions and no existing suggestion)
+                for i, video in enumerate(videos_needing_suggestions):
                     _game_scan_state['current'] = i + 1
 
                     if video.video_id in processed_video_ids:
@@ -429,7 +433,7 @@ def manual_scan_games():
                         _game_scan_state['suggestions_created'] = suggestions_created
                         logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f}, source: {detected_game['source']})")
 
-                logger.info(f"Game scan complete: {suggestions_created} suggestions created from {len(videos_to_process)} videos")
+                logger.info(f"Game scan complete: {suggestions_created} suggestions created from {len(unlinked_videos)} unlinked videos")
 
             except Exception as e:
                 logger.error(f"Error scanning videos for games: {e}")
