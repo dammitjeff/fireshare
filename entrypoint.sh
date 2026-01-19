@@ -37,8 +37,7 @@ runuser -u appuser -- rm -f /jobs. sqlite 2> /dev/null || true
 # Test nginx configuration first
 echo "Testing nginx configuration..."
 nginx -t
-if [ $? -ne 0 ]; then
-    cat /etc/nginx/nginx.conf
+if [ $?  -ne 0 ]; then
     echo "ERROR: Nginx configuration test failed!"
     exit 1
 fi
@@ -46,7 +45,7 @@ fi
 # Start nginx as ROOT (needs to bind to port 80, then drops privileges)
 echo "Starting nginx..."
 nginx -g 'daemon on;'
-if [ $? -ne 0 ]; then
+if [ $?  -ne 0 ]; then
     echo "ERROR: Failed to start nginx!"
     exit 1
 fi
@@ -60,11 +59,12 @@ export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/
 echo "Running database migrations..."
 runuser -u appuser -- env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" flask db upgrade
 if [ $? -ne 0 ]; then
-    echo "ERROR: Database migration failed!"
+    echo "ERROR:  Database migration failed!"
     exit 1
 fi
 echo "Database migrations complete"
 
-# Run gunicorn with config file
+# Run gunicorn with config file (or fall back to command line if no config file)
+echo "Starting gunicorn..."
 exec runuser -u appuser -- env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     gunicorn --config /app/server/gunicorn.conf.py "fireshare:create_app(init_schedule=True)"
