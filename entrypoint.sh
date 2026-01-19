@@ -9,7 +9,7 @@ useradd appuser 2>/dev/null || true
 groupmod -o -g "$PGID" appuser
 usermod -o -u "$PUID" appuser
 
-chown -R appuser: appuser $DATA_DIRECTORY
+chown -R appuser:appuser $DATA_DIRECTORY
 chown -R appuser:appuser $VIDEO_DIRECTORY
 chown -R appuser:appuser $PROCESSED_DIRECTORY
 
@@ -28,9 +28,9 @@ export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/
 echo "Running database migrations..."
 runuser -u appuser -- env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" flask db upgrade
 
-echo "Starting gunicorn WITHOUT config file..."
+echo "Starting gunicorn on port 5000..."
 exec runuser -u appuser -- env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-    gunicorn --bind=0.0.0.0:80 \
+    gunicorn --bind=0.0.0.0:5000 \
     --workers 3 \
     --threads 3 \
     --timeout 120 \
