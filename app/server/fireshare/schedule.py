@@ -1,6 +1,6 @@
-from tabnanny import check
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from sqlalchemy.pool import NullPool
 
 import logging
 from subprocess import Popen
@@ -16,8 +16,9 @@ def init_schedule(dburl, mins_between_scan=5):
     if mins_between_scan > 0:
         logger.info(f'Initializing scheduled video scan. minutes={mins_between_scan}')
         # Configure SQLite connection for better concurrency handling
+        # NullPool disables connection pooling - prevents stale connections and lock issues
         engine_options = {
-            'pool_pre_ping': True,
+            'poolclass': NullPool,
             'connect_args': {
                 'timeout': 30,
                 'check_same_thread': False,
