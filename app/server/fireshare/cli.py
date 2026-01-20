@@ -591,7 +591,7 @@ def transcode_videos(regenerate, video, include_corrupt):
         vinfos = VideoInfo.query.filter(VideoInfo.video_id==video).all() if video else VideoInfo.query.all()
         
         # Filter out corrupt videos unless explicitly included
-        corrupt_videos = get_all_corrupt_videos()
+        corrupt_videos = set(get_all_corrupt_videos())
         if not include_corrupt and not video:
             original_count = len(vinfos)
             vinfos = [vi for vi in vinfos if vi.video_id not in corrupt_videos]

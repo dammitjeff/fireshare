@@ -1291,10 +1291,16 @@ def get_corrupt_videos():
     from fireshare.cli import get_all_corrupt_videos
     
     corrupt_video_ids = get_all_corrupt_videos()
-    # Get video details for each corrupt video
+    
+    # Get video details for all corrupt videos in a single query
+    video_info_map = {}
+    if corrupt_video_ids:
+        video_infos = VideoInfo.query.filter(VideoInfo.video_id.in_(corrupt_video_ids)).all()
+        video_info_map = {vi.video_id: vi for vi in video_infos}
+    
     corrupt_videos = []
     for video_id in corrupt_video_ids:
-        vi = VideoInfo.query.filter(VideoInfo.video_id == video_id).first()
+        vi = video_info_map.get(video_id)
         if vi:
             corrupt_videos.append({
                 'video_id': video_id,
