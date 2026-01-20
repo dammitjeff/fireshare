@@ -1284,6 +1284,45 @@ def reject_game_suggestion(video_id):
 
     return Response(status=204)
 
+@api.route('/api/videos/corrupt', methods=["GET"])
+@login_required
+def get_corrupt_videos():
+    """Get a list of all videos marked as corrupt"""
+    corrupt_videos = VideoInfo.query.filter(VideoInfo.is_corrupt == True).all()
+    return jsonify([{
+        'video_id': vi.video_id,
+        'title': vi.title,
+        'path': vi.video.path if vi.video else None
+    } for vi in corrupt_videos])
+
+@api.route('/api/videos/<video_id>/corrupt', methods=["DELETE"])
+@login_required
+def clear_corrupt_status(video_id):
+    """Clear the corrupt status for a specific video so it can be retried"""
+    vi = VideoInfo.query.filter(VideoInfo.video_id == video_id).first()
+    if not vi:
+        return Response(status=404, response="Video not found")
+    
+    if not vi.is_corrupt:
+        return Response(status=400, response="Video is not marked as corrupt")
+    
+    vi.is_corrupt = False
+    db.session.add(vi)
+    db.session.commit()
+    
+    logger.info(f"Cleared corrupt status for video {video_id}")
+    return Response(status=204)
+
+@api.route('/api/videos/corrupt/clear-all', methods=["DELETE"])
+@login_required
+def clear_all_corrupt_status():
+    """Clear the corrupt status for all videos so they can be retried"""
+    corrupt_count = VideoInfo.query.filter(VideoInfo.is_corrupt == True).update({'is_corrupt': False})
+    db.session.commit()
+    
+    logger.info(f"Cleared corrupt status for {corrupt_count} video(s)")
+    return jsonify({'cleared': corrupt_count})
+
 @api.after_request
 def after_request(response):
     response.headers.add('Accept-Ranges', 'bytes')

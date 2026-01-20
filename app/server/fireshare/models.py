@@ -52,6 +52,7 @@ class VideoInfo(db.Model):
     private     = db.Column(db.Boolean, default=True)
     has_720p    = db.Column(db.Boolean, default=False)
     has_1080p   = db.Column(db.Boolean, default=False)
+    is_corrupt  = db.Column(db.Boolean, default=False)
 
     video       = db.relationship("Video", back_populates="info", uselist=False, lazy="joined")
 
@@ -85,7 +86,8 @@ class VideoInfo(db.Model):
             "duration": round(self.duration) if self.duration else 0,
             "framerate": self.framerate,
             "has_720p": self.has_720p,
-            "has_1080p": self.has_1080p
+            "has_1080p": self.has_1080p,
+            "is_corrupt": self.is_corrupt
         }
 
     def __repr__(self):
