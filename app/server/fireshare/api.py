@@ -1284,6 +1284,59 @@ def reject_game_suggestion(video_id):
 
     return Response(status=204)
 
+@api.route('/api/videos/corrupt', methods=["GET"])
+@login_required
+def get_corrupt_videos():
+    """Get a list of all videos marked as corrupt"""
+    from fireshare.cli import get_all_corrupt_videos
+    
+    corrupt_video_ids = get_all_corrupt_videos()
+    
+    # Get video details for all corrupt videos in a single query
+    video_info_map = {}
+    if corrupt_video_ids:
+        video_infos = VideoInfo.query.filter(VideoInfo.video_id.in_(corrupt_video_ids)).all()
+        video_info_map = {vi.video_id: vi for vi in video_infos}
+    
+    corrupt_videos = []
+    for video_id in corrupt_video_ids:
+        vi = video_info_map.get(video_id)
+        if vi:
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': vi.title,
+                'path': vi.video.path if vi.video else None
+            })
+        else:
+            # Video may have been deleted but still in corrupt list
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': None,
+                'path': None
+            })
+    return jsonify(corrupt_videos)
+
+@api.route('/api/videos/<video_id>/corrupt', methods=["DELETE"])
+@login_required
+def clear_corrupt_status(video_id):
+    """Clear the corrupt status for a specific video so it can be retried"""
+    from fireshare.cli import clear_video_corrupt, is_video_corrupt
+    
+    if not is_video_corrupt(video_id):
+        return Response(status=400, response="Video is not marked as corrupt")
+    
+    clear_video_corrupt(video_id)
+    return Response(status=204)
+
+@api.route('/api/videos/corrupt/clear-all', methods=["DELETE"])
+@login_required
+def clear_all_corrupt_status():
+    """Clear the corrupt status for all videos so they can be retried"""
+    from fireshare.cli import clear_all_corrupt_videos
+    
+    count = clear_all_corrupt_videos()
+    return jsonify({'cleared': count})
+
 @api.after_request
 def after_request(response):
     response.headers.add('Accept-Ranges', 'bytes')
