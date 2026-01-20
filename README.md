@@ -87,13 +87,13 @@ The goal of Fireshare is to provide a very simple and easy way for you to share 
 
 ![list-view]
 
-<h2 align="center">Foldered Sorting</h2>
-<p align="center">Fireshare will use the top most directory that your videos are in as an easy and simple way for you to organize your videos into categories of your choosing.</p>
-
-![folders]
+<h2 align="center">NEW! Automatic Organizing by Games</h2>
+<p align="center">Organize your video clips by games so you know exactly where they are. Fireshare can automatically scan and organize your video clips by games, and organize them with beautiful and relevant cover art.</p>
+<img width="3784" height="1798" alt="Gamestab" src="https://github.com/user-attachments/assets/8d43a29a-3e86-46ff-a598-96331a4cd2f2" />
 
 <h2 align="center">Uploading</h2>
 <p align="center">Allow your community or the public the ability to upload videos. Of course, this feature can be disabled or limited to only administrator access</p>
+![Uploading Gamestab.png…]()
 
 ![uploading]
 
