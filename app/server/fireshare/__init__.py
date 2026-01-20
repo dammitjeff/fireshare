@@ -12,6 +12,7 @@ import json
 import secrets
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 from sqlite3 import Connection as SQLite3Connection
 
 logger = logging.getLogger('fireshare')
@@ -117,6 +118,16 @@ def create_app(init_schedule=False):
 
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{app.config["DATA_DIRECTORY"]}/db.sqlite'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    # Configure SQLite connection for better concurrency handling
+    # NullPool disables connection pooling - each request gets a fresh connection
+    # This prevents stale connection issues and lock contention with SQLite
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'poolclass': NullPool,  # Disable connection pooling for SQLite
+        'connect_args': {
+            'timeout': 30,  # Connection timeout in seconds (wait for locks)
+            'check_same_thread': False,  # Allow multi-threaded access (safe with WAL mode)
+        },
+    }
     app.config['SCHEDULED_JOBS_DATABASE_URI'] = f'sqlite:///{app.config["DATA_DIRECTORY"]}/jobs.sqlite'
     app.config['INIT_SCHEDULE'] = init_schedule
     app.config['MINUTES_BETWEEN_VIDEO_SCANS'] = int(os.getenv('MINUTES_BETWEEN_VIDEO_SCANS', '5'))
