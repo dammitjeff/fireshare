@@ -1288,40 +1288,48 @@ def reject_game_suggestion(video_id):
 @login_required
 def get_corrupt_videos():
     """Get a list of all videos marked as corrupt"""
-    corrupt_videos = VideoInfo.query.filter(VideoInfo.is_corrupt == True).all()
-    return jsonify([{
-        'video_id': vi.video_id,
-        'title': vi.title,
-        'path': vi.video.path if vi.video else None
-    } for vi in corrupt_videos])
+    from fireshare.cli import get_all_corrupt_videos
+    
+    corrupt_video_ids = get_all_corrupt_videos()
+    # Get video details for each corrupt video
+    corrupt_videos = []
+    for video_id in corrupt_video_ids:
+        vi = VideoInfo.query.filter(VideoInfo.video_id == video_id).first()
+        if vi:
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': vi.title,
+                'path': vi.video.path if vi.video else None
+            })
+        else:
+            # Video may have been deleted but still in corrupt list
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': None,
+                'path': None
+            })
+    return jsonify(corrupt_videos)
 
 @api.route('/api/videos/<video_id>/corrupt', methods=["DELETE"])
 @login_required
 def clear_corrupt_status(video_id):
     """Clear the corrupt status for a specific video so it can be retried"""
-    vi = VideoInfo.query.filter(VideoInfo.video_id == video_id).first()
-    if not vi:
-        return Response(status=404, response="Video not found")
+    from fireshare.cli import clear_video_corrupt, is_video_corrupt
     
-    if not vi.is_corrupt:
+    if not is_video_corrupt(video_id):
         return Response(status=400, response="Video is not marked as corrupt")
     
-    vi.is_corrupt = False
-    db.session.add(vi)
-    db.session.commit()
-    
-    logger.info(f"Cleared corrupt status for video {video_id}")
+    clear_video_corrupt(video_id)
     return Response(status=204)
 
 @api.route('/api/videos/corrupt/clear-all', methods=["DELETE"])
 @login_required
 def clear_all_corrupt_status():
     """Clear the corrupt status for all videos so they can be retried"""
-    corrupt_count = VideoInfo.query.filter(VideoInfo.is_corrupt == True).update({'is_corrupt': False})
-    db.session.commit()
+    from fireshare.cli import clear_all_corrupt_videos
     
-    logger.info(f"Cleared corrupt status for {corrupt_count} video(s)")
-    return jsonify({'cleared': corrupt_count})
+    count = clear_all_corrupt_videos()
+    return jsonify({'cleared': count})
 
 @api.after_request
 def after_request(response):

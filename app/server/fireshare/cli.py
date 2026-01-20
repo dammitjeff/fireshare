@@ -63,6 +63,68 @@ def delete_game_suggestion(video_id):
         return True
     return False
 
+# Helper functions for persistent corrupt video tracking
+def _get_corrupt_videos_file():
+    """Get path to the corrupt videos JSON file"""
+    from flask import current_app
+    data_dir = Path(current_app.config.get('DATA_DIRECTORY', '/data'))
+    return data_dir / 'corrupt_videos.json'
+
+def _load_corrupt_videos():
+    """Load corrupt videos list from JSON file"""
+    corrupt_file = _get_corrupt_videos_file()
+    if corrupt_file.exists():
+        try:
+            with open(corrupt_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+def _save_corrupt_videos(corrupt_list):
+    """Save corrupt videos list to JSON file"""
+    corrupt_file = _get_corrupt_videos_file()
+    corrupt_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(corrupt_file, 'w') as f:
+            json.dump(corrupt_list, f)
+    except IOError as e:
+        logger.error(f"Failed to save corrupt videos list: {e}")
+
+def is_video_corrupt(video_id):
+    """Check if a video is marked as corrupt"""
+    corrupt_list = _load_corrupt_videos()
+    return video_id in corrupt_list
+
+def mark_video_corrupt(video_id):
+    """Mark a video as corrupt"""
+    corrupt_list = _load_corrupt_videos()
+    if video_id not in corrupt_list:
+        corrupt_list.append(video_id)
+        _save_corrupt_videos(corrupt_list)
+        logger.info(f"Marked video {video_id} as corrupt")
+
+def clear_video_corrupt(video_id):
+    """Clear the corrupt status for a video"""
+    corrupt_list = _load_corrupt_videos()
+    if video_id in corrupt_list:
+        corrupt_list.remove(video_id)
+        _save_corrupt_videos(corrupt_list)
+        logger.info(f"Cleared corrupt status for video {video_id}")
+        return True
+    return False
+
+def get_all_corrupt_videos():
+    """Get list of all corrupt video IDs"""
+    return _load_corrupt_videos()
+
+def clear_all_corrupt_videos():
+    """Clear all corrupt video statuses"""
+    count = len(_load_corrupt_videos())
+    _save_corrupt_videos([])
+    logger.info(f"Cleared corrupt status for {count} video(s)")
+    return count
+
 def send_discord_webhook(webhook_url=None, video_url=None):
     payload = {
         "content": video_url,
@@ -510,19 +572,6 @@ def create_boomerang_posters(regenerate):
             else:
                 logger.info(f"Skipping creation of boomerang poster for video {vi.video_id} because it exists at {str(poster_path)}")
 
-def _mark_video_corrupt(vi, video_id):
-    """Mark a video as corrupt in the database."""
-    vi.is_corrupt = True
-    db.session.add(vi)
-    db.session.commit()
-    logger.info(f"Marked video {video_id} as corrupt in database")
-
-def _clear_corrupt_flag(vi, video_id):
-    """Clear the corrupt flag for a video if it was previously set."""
-    if vi.is_corrupt:
-        vi.is_corrupt = False
-        logger.info(f"Cleared corrupt flag for video {video_id} - transcode succeeded")
-
 @cli.command()
 @click.option("--regenerate", "-r", help="Overwrite existing transcoded videos", is_flag=True)
 @click.option("--video", "-v", help="Transcode a specific video by id", default=None)
@@ -539,19 +588,16 @@ def transcode_videos(regenerate, video, include_corrupt):
         base_timeout = current_app.config.get('TRANSCODE_TIMEOUT', 7200)
         
         # Get videos to transcode
-        if video:
-            vinfos = VideoInfo.query.filter(VideoInfo.video_id==video).all()
-        elif include_corrupt:
-            vinfos = VideoInfo.query.all()
-        else:
-            # Skip videos already marked as corrupt unless explicitly included
-            vinfos = VideoInfo.query.filter(VideoInfo.is_corrupt == False).all()
+        vinfos = VideoInfo.query.filter(VideoInfo.video_id==video).all() if video else VideoInfo.query.all()
         
-        # Count how many corrupt videos are being skipped
+        # Filter out corrupt videos unless explicitly included
+        corrupt_videos = get_all_corrupt_videos()
         if not include_corrupt and not video:
-            corrupt_count = VideoInfo.query.filter(VideoInfo.is_corrupt == True).count()
-            if corrupt_count > 0:
-                logger.info(f"Skipping {corrupt_count} video(s) previously marked as corrupt. Use --include-corrupt to retry them.")
+            original_count = len(vinfos)
+            vinfos = [vi for vi in vinfos if vi.video_id not in corrupt_videos]
+            skipped_count = original_count - len(vinfos)
+            if skipped_count > 0:
+                logger.info(f"Skipping {skipped_count} video(s) previously marked as corrupt. Use --include-corrupt to retry them.")
         
         logger.info(f'Processing {len(vinfos):,} videos for transcoding (GPU: {use_gpu}, Base timeout: {base_timeout}s)')
         
@@ -578,12 +624,14 @@ def transcode_videos(regenerate, video, include_corrupt):
                 success, failure_reason = util.transcode_video_quality(video_path, transcode_1080p_path, 1080, use_gpu, timeout)
                 if success:
                     vi.has_1080p = True
-                    _clear_corrupt_flag(vi, vi.video_id)
+                    # Clear corrupt status if transcode succeeds (file may have been replaced)
+                    if is_video_corrupt(vi.video_id):
+                        clear_video_corrupt(vi.video_id)
                     db.session.add(vi)
                     db.session.commit()
                 elif failure_reason == 'corruption':
                     logger.warning(f"Skipping video {vi.video_id} 1080p transcode - source file appears corrupt")
-                    _mark_video_corrupt(vi, vi.video_id)
+                    mark_video_corrupt(vi.video_id)
                     video_is_corrupt = True
                 else:
                     logger.warning(f"Skipping video {vi.video_id} 1080p transcode - all encoders failed")
@@ -605,12 +653,14 @@ def transcode_videos(regenerate, video, include_corrupt):
                 success, failure_reason = util.transcode_video_quality(video_path, transcode_720p_path, 720, use_gpu, timeout)
                 if success:
                     vi.has_720p = True
-                    _clear_corrupt_flag(vi, vi.video_id)
+                    # Clear corrupt status if transcode succeeds (file may have been replaced)
+                    if is_video_corrupt(vi.video_id):
+                        clear_video_corrupt(vi.video_id)
                     db.session.add(vi)
                     db.session.commit()
                 elif failure_reason == 'corruption':
                     logger.warning(f"Skipping video {vi.video_id} 720p transcode - source file appears corrupt")
-                    _mark_video_corrupt(vi, vi.video_id)
+                    mark_video_corrupt(vi.video_id)
                 else:
                     logger.warning(f"Skipping video {vi.video_id} 720p transcode - all encoders failed")
             elif transcode_720p_path.exists():
