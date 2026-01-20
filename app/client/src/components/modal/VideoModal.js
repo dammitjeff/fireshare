@@ -94,6 +94,11 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
       }
     }
     if (videoId) {
+      // Reset video state before loading new video to prevent showing old data
+      setVideo(null)
+      setTitle('')
+      setDescription('')
+      setSelectedGame(null)
       fetch()
     }
   }, [videoId])
@@ -272,12 +277,13 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
               <Box
                 sx={{
                   width: '100%',
-                  maxWidth: 'calc((100vh - 40px - 200px) * 16 / 9)',
+                  maxWidth: 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
                   display: 'flex',
                   flexDirection: 'column',
                 }}
               >
                 <VideoJSPlayer
+                  key={vid.video_id}
                   sources={getVideoSources(vid.video_id, vid?.info, vid.extension)}
                   poster={getPosterUrl()}
                   autoplay={autoplay}

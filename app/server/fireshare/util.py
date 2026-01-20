@@ -6,6 +6,44 @@ import xxhash
 from fireshare import logger
 import time
 import glob
+import shutil
+
+# Corruption indicators to detect during video validation
+# These are ffmpeg error messages that indicate file corruption
+VIDEO_CORRUPTION_INDICATORS = [
+    "Corrupt frame detected",
+    "No sequence header",
+    "Error submitting packet to decoder",
+    "Invalid data found when processing input",
+    "Decode error rate",
+    "moov atom not found",
+    "Invalid NAL unit size",
+    "non-existing PPS",
+    "Could not find codec parameters",
+]
+
+# Corruption indicators that are known false positives for AV1 files
+# These warnings can occur during initial frame decoding of valid AV1 files
+# and should be ignored if the decode test succeeds (returncode 0)
+# Note: Values are lowercase for consistent case-insensitive matching
+AV1_FALSE_POSITIVE_INDICATORS = frozenset([
+    "corrupt frame detected",
+    "no sequence header",
+    "error submitting packet to decoder",
+    "decode error rate",
+    "invalid nal unit size",
+    "non-existing pps",
+])
+
+# Known AV1 codec names as reported by ffprobe (lowercase for matching)
+# These are used to detect AV1-encoded source files for special handling
+AV1_CODEC_NAMES = frozenset([
+    'av1',
+    'libaom-av1',
+    'libsvtav1',
+    'av1_nvenc',
+    'av1_qsv',
+])
 
 def lock_exists(path: Path):
     """
@@ -70,6 +108,138 @@ def get_video_duration(path):
     except Exception as ex:
         logger.debug(f'Could not extract video duration: {ex}')
     return None
+
+def validate_video_file(path, timeout=30):
+    """
+    Validate that a video file is not corrupt and can be decoded.
+    
+    This function performs a quick decode test on the first few seconds of the video
+    to detect corruption issues like missing sequence headers, corrupt frames, etc.
+    
+    For AV1 files, validation is more lenient as some AV1 encoders produce files
+    that generate warnings during initial frame decoding but play back correctly.
+    
+    Args:
+        path: Path to the video file
+        timeout: Maximum time in seconds to wait for validation (default: 30)
+    
+    Returns:
+        tuple: (is_valid: bool, error_message: str or None)
+            - (True, None) if the video is valid
+            - (False, error_message) if the video is corrupt or unreadable
+    """
+    # Check if ffprobe and ffmpeg are available using shutil.which
+    if not shutil.which('ffprobe'):
+        return False, "ffprobe command not found - ensure ffmpeg is installed"
+    if not shutil.which('ffmpeg'):
+        return False, "ffmpeg command not found - ensure ffmpeg is installed"
+    
+    try:
+        # First, check if ffprobe can read the stream information
+        probe_cmd = [
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name,width,height',
+            '-of', 'json', str(path)
+        ]
+        logger.debug(f"Validating video file: {' '.join(probe_cmd)}")
+        
+        probe_result = sp.run(probe_cmd, capture_output=True, text=True, timeout=timeout)
+        
+        if probe_result.returncode != 0:
+            error_msg = probe_result.stderr.strip() if probe_result.stderr else "Unknown error reading video metadata"
+            return False, f"ffprobe failed: {error_msg}"
+        
+        # Check if we got valid stream data
+        # Note: -select_streams v:0 in probe_cmd ensures only video streams are returned
+        try:
+            probe_data = json.loads(probe_result.stdout)
+            streams = probe_data.get('streams', [])
+            if not streams:
+                return False, "No video streams found in file"
+        except json.JSONDecodeError:
+            return False, "Failed to parse video metadata"
+        
+        # Get the codec name from the video stream
+        # Safe to access streams[0] because we checked for empty streams above
+        video_stream = streams[0]
+        codec_name = video_stream.get('codec_name', '').lower()
+        
+        # Detect if the source file is AV1-encoded
+        # AV1 files may produce false positive corruption warnings during initial frame decoding
+        is_av1_source = codec_name in AV1_CODEC_NAMES
+        
+        # Now perform a quick decode test by decoding the first 2 seconds
+        # This catches issues like "No sequence header" or "Corrupt frame detected"
+        decode_cmd = [
+            'ffmpeg', '-v', 'error', '-t', '2',
+            '-i', str(path), '-f', 'null', '-'
+        ]
+        logger.debug(f"Decode test: {' '.join(decode_cmd)}")
+        
+        decode_result = sp.run(decode_cmd, capture_output=True, text=True, timeout=timeout)
+        
+        # Check for decode errors - only treat as error if return code is non-zero
+        # or if stderr contains known corruption indicators
+        stderr = decode_result.stderr.strip() if decode_result.stderr else ""
+        stderr_lower = stderr.lower()
+        
+        # For AV1 files, be more lenient about certain error messages
+        # Some AV1 encoders produce files that generate warnings/errors during initial
+        # frame decoding (e.g., "Corrupt frame detected", "No sequence header") but
+        # play back correctly. This is especially common with files that use temporal
+        # scalability or have non-standard sequence header placement.
+        if is_av1_source:
+            # Check if the only errors are known false positives for AV1
+            found_real_error = False
+            found_false_positive = False
+            
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
+                indicator_lower = indicator.lower()
+                if indicator_lower in stderr_lower:
+                    if indicator_lower in AV1_FALSE_POSITIVE_INDICATORS:
+                        found_false_positive = True
+                    else:
+                        found_real_error = True
+                        # Found a real error, fail immediately
+                        return False, f"Video file appears to be corrupt: {indicator}"
+            
+            # If we only found false positives (no real errors), the file is valid
+            if found_false_positive and not found_real_error:
+                logger.debug(f"AV1 file had known false positive warnings during validation (ignoring): {stderr[:200]}")
+                return True, None
+            
+            # If returncode is non-zero, fail (either with stderr message or generic failure)
+            if decode_result.returncode != 0:
+                if stderr:
+                    return False, f"Decode test failed: {stderr[:200]}"
+                else:
+                    return False, "Decode test failed with no error message"
+            
+            return True, None
+        else:
+            # For non-AV1 files, use strict validation
+            if decode_result.returncode != 0:
+                # Decode failed - check for specific corruption indicators
+                for indicator in VIDEO_CORRUPTION_INDICATORS:
+                    if indicator.lower() in stderr_lower:
+                        return False, f"Video file appears to be corrupt: {indicator}"
+                # Generic decode failure
+                return False, f"Decode test failed: {stderr[:200] if stderr else 'Unknown error'}"
+            
+            # Return code is 0 (success), but check for corruption indicators in warnings
+            for indicator in VIDEO_CORRUPTION_INDICATORS:
+                if indicator.lower() in stderr_lower:
+                    return False, f"Video file appears to be corrupt: {indicator}"
+        
+        return True, None
+        
+    except sp.TimeoutExpired:
+        return False, f"Validation timed out after {timeout} seconds"
+    except FileNotFoundError:
+        return False, "Video file not found"
+    except Exception as ex:
+        return False, f"Validation error: {str(ex)}"
+
 
 def calculate_transcode_timeout(video_path, base_timeout=7200):
     """
@@ -336,10 +506,21 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
         timeout_seconds: Maximum time allowed for encoding (default: calculated based on video duration)
     
     Returns:
-        bool: True if transcoding succeeded, False if all encoders failed
+        tuple: (success: bool, failure_reason: str or None)
+            - (True, None) if transcoding succeeded
+            - (False, 'corruption') if source file appears corrupt
+            - (False, 'encoders') if all encoders failed
     """
     global _working_encoder_cache
     s = time.time()
+    
+    # Validate the source video file before attempting transcoding
+    # This catches corrupt files early instead of trying all encoders
+    is_valid, error_msg = validate_video_file(video_path)
+    if not is_valid:
+        logger.error(f"Source video validation failed: {error_msg}")
+        logger.warning("Skipping transcoding for this video due to file corruption or read errors")
+        return (False, 'corruption')
     
     # Calculate smart timeout based on video duration if not provided
     if timeout_seconds is None:
@@ -368,7 +549,7 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
             if result.returncode == 0:
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
-                return True
+                return (True, None)
             else:
                 # Cached encoder failed - clear cache and fall through to try all encoders
                 logger.warning(f"Cached encoder {encoder['name']} failed with exit code {result.returncode}")
@@ -498,7 +679,7 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
                 _working_encoder_cache[mode] = encoder
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
-                return True
+                return (True, None)
             else:
                 logger.warning(f"✗ {encoder['name']} failed with exit code {result.returncode}")
                 last_exception = Exception(f"Transcode failed with exit code {result.returncode}")
@@ -536,9 +717,9 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     if last_exception:
         logger.error(f"Last error was: {last_exception}")
     
-    # Return False to indicate failure instead of raising exception
+    # Return failure with 'encoders' reason to indicate encoder failure (not corruption)
     # This allows the calling code to continue processing other videos
-    return False
+    return (False, 'encoders')
 
 def create_boomerang_preview(video_path, out_path, clip_duration=1.5):
     # https://stackoverflow.com/questions/65874316/trim-a-video-and-add-the-boomerang-effect-on-it-with-ffmpeg
@@ -583,3 +764,154 @@ def seconds_to_dur_string(sec):
         return ':'.join([str(hours), str(mins).zfill(2), str(s).zfill(2)])
     else:
         return ':'.join([str(mins), str(s).zfill(2)])
+
+def detect_game_from_filename(filename: str, steamgriddb_api_key: str = None, path: str = None):
+    """
+    Fuzzy match a video filename against existing games in database using RapidFuzz.
+    Falls back to SteamGridDB search if no local match found.
+
+    Args:
+        filename: Video filename without extension
+        steamgriddb_api_key: Optional API key for SteamGridDB fallback
+        path: Optional relative path (e.g. "Game Name/clip.mp4") - folder name is tried first
+
+    Returns:
+        dict with 'game_id', 'game_name', 'steamgriddb_id', 'confidence', 'source' or None
+    """
+    from rapidfuzz import fuzz, process
+    from fireshare.models import GameMetadata
+    import re
+
+    # Step 0: Try folder name first (highest confidence source)
+    # Skip folder-based detection for upload folders (they're not game names)
+    from fireshare.constants import DEFAULT_CONFIG
+    upload_folders = {
+        DEFAULT_CONFIG['app_config']['admin_upload_folder_name'].lower(),
+        DEFAULT_CONFIG['app_config']['public_upload_folder_name'].lower(),
+    }
+
+    if path:
+        parts = path.split('/')
+        if len(parts) > 1:  # Has at least one folder
+            folder_name = parts[0]  # Top-level folder
+
+            # Skip folder-based detection for upload folders
+            if folder_name.lower() not in upload_folders:
+                # Try matching folder name against local game database
+                games = GameMetadata.query.all()
+                if games:
+                    game_choices = [(game.name, game) for game in games]
+                    result = process.extractOne(
+                        folder_name,
+                        game_choices,
+                        scorer=fuzz.token_set_ratio,
+                        score_cutoff=80  # Higher threshold for folder match
+                    )
+
+                    if result:
+                        matched_name, score, matched_game = result[0], result[1], result[2]
+                        best_match = {
+                            'game_id': matched_game.id,
+                            'game_name': matched_game.name,
+                            'steamgriddb_id': matched_game.steamgriddb_id,
+                            'confidence': score / 100,
+                            'source': 'folder_local'
+                        }
+                        logger.info(f"Folder-based game match: {best_match['game_name']} (confidence: {score:.0f}%)")
+                        return best_match
+
+                # Try SteamGridDB with folder name
+                if steamgriddb_api_key:
+                    logger.info(f"No local folder match, searching SteamGridDB for folder: '{folder_name}'")
+                    from fireshare.steamgrid import SteamGridDBClient
+                    client = SteamGridDBClient(steamgriddb_api_key)
+
+                    try:
+                        results = client.search_games(folder_name)
+                        if results and len(results) > 0:
+                            top_result = results[0]
+                            # Use higher confidence for folder-based SteamGridDB match
+                            detected = {
+                                'game_id': None,
+                                'game_name': top_result.get('name'),
+                                'steamgriddb_id': top_result.get('id'),
+                                'confidence': 0.85,  # Higher than filename-based
+                                'source': 'folder_steamgriddb',
+                                'release_date': top_result.get('release_date')
+                            }
+                            logger.info(f"Folder-based SteamGridDB match: {detected['game_name']} (id: {detected['steamgriddb_id']})")
+                            return detected
+                    except Exception as ex:
+                        logger.warning(f"SteamGridDB folder search failed: {ex}")
+            else:
+                logger.debug(f"Skipping folder-based detection for upload folder: '{folder_name}'")
+
+    # Clean filename for better matching
+    clean_name = filename.lower()
+    # Remove common patterns: dates, numbers, "gameplay", etc.
+    clean_name = re.sub(r'\d{4}-\d{2}-\d{2}', '', clean_name)  # Remove dates like 2024-01-14
+    clean_name = re.sub(r'\d{8}', '', clean_name)  # Remove YYYYMMDD format
+    clean_name = re.sub(r'\b(gameplay|clip|highlights?|match|game|recording|video)\b', '', clean_name, flags=re.IGNORECASE)
+    clean_name = re.sub(r'[_\-]+', ' ', clean_name)  # Replace _ and - with spaces
+    clean_name = re.sub(r'\s+', ' ', clean_name)  # Normalize whitespace
+    clean_name = clean_name.strip()
+
+    if not clean_name:
+        logger.debug("Filename cleaned to empty string, cannot detect game")
+        return None
+
+    # Step 1: Try local database first
+    games = GameMetadata.query.all()
+
+    if not games:
+        logger.debug("No games in database to match against")
+    else:
+        # Create list of (game_name, game_object) tuples for rapidfuzz
+        game_choices = [(game.name, game) for game in games]
+
+        # Use token_set_ratio - ignores word order and extra words
+        result = process.extractOne(
+            clean_name,
+            game_choices,
+            scorer=fuzz.token_set_ratio,
+            score_cutoff=65  # Minimum confidence (0-100 scale)
+        )
+
+        if result:
+            matched_name, score, matched_game = result[0], result[1], result[2]
+            best_match = {
+                'game_id': matched_game.id,
+                'game_name': matched_game.name,
+                'steamgriddb_id': matched_game.steamgriddb_id,
+                'confidence': score / 100,  # Convert to 0-1 scale
+                'source': 'local'
+            }
+            logger.info(f"Local game match: {best_match['game_name']} (confidence: {score:.0f}%)")
+            return best_match
+
+    # Step 2: Fallback to SteamGridDB search
+    if steamgriddb_api_key:
+        logger.info(f"No local match found, searching SteamGridDB for: '{clean_name}'")
+        from fireshare.steamgrid import SteamGridDBClient
+        client = SteamGridDBClient(steamgriddb_api_key)
+
+        try:
+            results = client.search_games(clean_name)
+            if results and len(results) > 0:
+                # Take the first result (SteamGridDB returns best matches first)
+                top_result = results[0]
+                detected = {
+                    'game_id': None,  # Not in our DB yet
+                    'game_name': top_result.get('name'),
+                    'steamgriddb_id': top_result.get('id'),
+                    'confidence': 0.75,  # Assume SteamGridDB results are good
+                    'source': 'steamgriddb',
+                    'release_date': top_result.get('release_date')
+                }
+                logger.info(f"SteamGridDB match: {detected['game_name']} (id: {detected['steamgriddb_id']})")
+                return detected
+        except Exception as ex:
+            logger.warning(f"SteamGridDB search failed: {ex}")
+
+    logger.debug(f"No game match found for filename: '{clean_name}'")
+    return None

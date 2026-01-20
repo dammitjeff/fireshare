@@ -3,6 +3,7 @@ import os, re, string
 import shutil
 import random
 import logging
+import threading
 from subprocess import Popen
 from textwrap import indent
 from flask import Blueprint, render_template, request, Response, jsonify, current_app, send_file, redirect
@@ -19,10 +20,25 @@ from .models import Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
 
+def add_cache_headers(response, cache_key, max_age=604800):
+    """Add cache headers for static assets (default: 7 days)."""
+    response.headers['Cache-Control'] = f'public, max-age={max_age}, must-revalidate'
+    response.headers['ETag'] = f'"{cache_key}"'
+    return response
+
 templates_path = os.environ.get('TEMPLATE_PATH') or 'templates'
 api = Blueprint('api', __name__, template_folder=templates_path)
 
 CORS(api, supports_credentials=True)
+
+# Global state for tracking game scan progress
+_game_scan_state = {
+    'is_running': False,
+    'current': 0,
+    'total': 0,
+    'suggestions_created': 0,
+    'lock': threading.Lock()
+}
 
 def get_steamgriddb_api_key():
     """
@@ -126,6 +142,119 @@ def get_warnings():
         else:
             return jsonify(warnings)
 
+@api.route('/api/admin/reset-database', methods=["POST"])
+@login_required
+def reset_database():
+    """Reset selected video and game data while preserving config and user settings"""
+    try:
+        paths = current_app.config['PATHS']
+        payload = request.get_json(silent=True) or {}
+
+        if isinstance(payload, dict) and isinstance(payload.get("options"), dict):
+            options = payload["options"]
+        elif isinstance(payload, dict):
+            options = payload
+        else:
+            options = {}
+
+        if not options:
+            options = {
+                "game_suggestions": True,
+                "game_links": True,
+                "game_metadata": True,
+                "game_assets": True,
+                "video_views": True,
+                "video_metadata": True,
+                "videos": True,
+                "processed_files": True,
+            }
+
+        reset_videos = bool(options.get("videos"))
+        reset_processed = bool(options.get("processed_files")) or reset_videos
+        reset_game_metadata = bool(options.get("game_metadata"))
+        reset_game_links = bool(options.get("game_links")) or reset_game_metadata or reset_videos
+        reset_game_assets = bool(options.get("game_assets")) or reset_game_metadata
+        reset_video_views = bool(options.get("video_views")) or reset_videos
+        reset_video_metadata = bool(options.get("video_metadata"))
+        reset_game_suggestions = bool(options.get("game_suggestions"))
+
+        if reset_game_suggestions:
+            suggestions_file = paths['data'] / 'game_suggestions.json'
+            if suggestions_file.exists():
+                suggestions_file.unlink()
+                current_app.logger.info("Deleted game_suggestions.json")
+
+        if reset_game_links:
+            VideoGameLink.query.delete()
+            current_app.logger.info("Deleted all video-game links")
+
+        if reset_game_metadata:
+            GameMetadata.query.delete()
+            current_app.logger.info("Deleted all game metadata")
+
+        if reset_video_views:
+            VideoView.query.delete()
+            current_app.logger.info("Deleted all video views")
+
+        if reset_video_metadata and not reset_videos:
+            videos_with_info = Video.query.join(VideoInfo).all()
+            for video in videos_with_info:
+                title = Path(video.path).stem
+                db.session.query(VideoInfo).filter_by(video_id=video.video_id).update({
+                    "title": title,
+                    "description": "",
+                })
+            current_app.logger.info("Reset video titles and descriptions")
+
+        if reset_videos:
+            VideoInfo.query.delete()
+            current_app.logger.info("Deleted all video info")
+            Video.query.delete()
+            current_app.logger.info("Deleted all videos")
+
+        db.session.commit()
+
+        if reset_processed:
+            video_links_dir = paths['processed'] / 'video_links'
+            derived_dir = paths['processed'] / 'derived'
+
+            if video_links_dir.exists():
+                shutil.rmtree(video_links_dir)
+                video_links_dir.mkdir()
+                current_app.logger.info("Cleared video_links directory")
+
+            if derived_dir.exists():
+                shutil.rmtree(derived_dir)
+                derived_dir.mkdir()
+                current_app.logger.info("Cleared derived directory")
+
+        if reset_game_assets:
+            game_assets_dir = paths['data'] / 'game_assets'
+            if game_assets_dir.exists():
+                shutil.rmtree(game_assets_dir)
+                game_assets_dir.mkdir()
+                current_app.logger.info("Cleared game_assets directory")
+
+        current_app.logger.info("Database reset complete")
+        return jsonify({
+            'message': 'Database reset successfully',
+            'reset': {
+                'game_suggestions': reset_game_suggestions,
+                'game_links': reset_game_links,
+                'game_metadata': reset_game_metadata,
+                'game_assets': reset_game_assets,
+                'video_views': reset_video_views,
+                'video_metadata': reset_video_metadata,
+                'videos': reset_videos,
+                'processed_files': reset_processed,
+            },
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Failed to reset database: {e}")
+        return Response(response=f'Failed to reset database: {str(e)}', status=500)
+
 @api.route('/api/manual/scan')
 @login_required
 def manual_scan():
@@ -135,6 +264,201 @@ def manual_scan():
         current_app.logger.info(f"Executed manual scan")
         Popen(["fireshare", "bulk-import"], shell=False)
     return Response(status=200)
+
+@api.route('/api/scan-games/status')
+@login_required
+def get_game_scan_status():
+    """Return current game scan progress"""
+    return jsonify({
+        'is_running': _game_scan_state['is_running'],
+        'current': _game_scan_state['current'],
+        'total': _game_scan_state['total'],
+        'suggestions_created': _game_scan_state['suggestions_created']
+    })
+
+@api.route('/api/folder-suggestions')
+@login_required
+def get_folder_suggestions():
+    """Get all pending folder suggestions"""
+    from fireshare.cli import _load_suggestions
+    suggestions = _load_suggestions()
+    logger.info(f"Loaded suggestions file, keys: {len(suggestions.keys())}")
+    folders = suggestions.get('_folders', {})
+    logger.info(f"Returning {len(folders)} folder suggestions: {list(folders.keys())}")
+    return jsonify(folders)
+
+@api.route('/api/folder-suggestions/<path:folder_name>/dismiss', methods=['POST'])
+@login_required
+def dismiss_folder_suggestion(folder_name):
+    """Dismiss a folder suggestion"""
+    from fireshare.cli import _load_suggestions, _save_suggestions
+
+    suggestions = _load_suggestions()
+    folder_suggestions = suggestions.get('_folders', {})
+
+    if folder_name not in folder_suggestions:
+        logger.warning(f"Folder suggestion not found: {folder_name}")
+        return jsonify({'error': 'Folder suggestion not found'}), 404
+
+    video_count = len(folder_suggestions[folder_name].get('video_ids', []))
+    del folder_suggestions[folder_name]
+    suggestions['_folders'] = folder_suggestions
+    _save_suggestions(suggestions)
+
+    logger.info(f"Dismissed folder suggestion: {folder_name} ({video_count} videos)")
+    return jsonify({'dismissed': True})
+
+@api.route('/api/manual/scan-games')
+@login_required
+def manual_scan_games():
+    """Start game scan in background thread"""
+    from fireshare import util
+    from fireshare.cli import save_game_suggestion, _load_suggestions
+
+    # Check if already running
+    with _game_scan_state['lock']:
+        if _game_scan_state['is_running']:
+            return jsonify({'already_running': True}), 409
+        _game_scan_state['is_running'] = True
+        _game_scan_state['current'] = 0
+        _game_scan_state['total'] = 0
+        _game_scan_state['suggestions_created'] = 0
+
+    # Get app context for background thread
+    app = current_app._get_current_object()
+
+    def run_scan():
+        with app.app_context():
+            try:
+                steamgriddb_api_key = get_steamgriddb_api_key()
+                logger.info(f"Starting game scan, API key configured: {bool(steamgriddb_api_key)}")
+
+                # Get all videos
+                videos = Video.query.join(VideoInfo).all()
+                logger.info(f"Found {len(videos)} total videos in database")
+
+                # Load existing suggestions and linked videos upfront (single queries)
+                existing_suggestions = _load_suggestions()
+                linked_video_ids = {link.video_id for link in VideoGameLink.query.all()}
+                existing_folder_suggestions = existing_suggestions.get('_folders', {})
+                logger.info(f"Existing suggestions: {len(existing_suggestions) - 1 if '_folders' in existing_suggestions else len(existing_suggestions)} individual, {len(existing_folder_suggestions)} folders")
+                logger.info(f"Already linked videos: {len(linked_video_ids)}")
+
+                # Get all unlinked videos for folder grouping
+                unlinked_videos = [v for v in videos if v.video_id not in linked_video_ids]
+                logger.info(f"Unlinked videos for folder grouping: {len(unlinked_videos)}")
+
+                # Videos needing individual suggestions (not linked and no existing suggestion)
+                videos_needing_suggestions = [
+                    video for video in unlinked_videos
+                    if video.video_id not in existing_suggestions
+                ]
+                logger.info(f"Videos needing individual suggestions: {len(videos_needing_suggestions)}")
+
+                # Set total for progress tracking
+                _game_scan_state['total'] = len(unlinked_videos)
+
+                # If nothing unlinked, we're done
+                if not unlinked_videos:
+                    logger.info("Game scan complete: no unlinked videos to process")
+                    return
+                suggestions_created = 0
+
+                # Group ALL unlinked videos by folder (not just those without suggestions)
+                folder_videos = {}
+                for video in unlinked_videos:
+                    parts = video.path.split('/')
+                    folder = parts[0] if len(parts) > 1 else None
+                    if folder:
+                        if folder not in folder_videos:
+                            folder_videos[folder] = []
+                        folder_videos[folder].append(video)
+
+                logger.info(f"Grouped videos into {len(folder_videos)} folders")
+                for folder, vids in folder_videos.items():
+                    logger.info(f"  Folder '{folder}': {len(vids)} videos")
+
+                # Process folder suggestions (folders with 2+ videos)
+                folder_suggestions = existing_suggestions.get('_folders', {})
+                processed_video_ids = set()
+
+                # Skip upload folders
+                from fireshare.constants import DEFAULT_CONFIG
+                upload_folders = {
+                    DEFAULT_CONFIG['app_config']['admin_upload_folder_name'].lower(),
+                    DEFAULT_CONFIG['app_config']['public_upload_folder_name'].lower(),
+                }
+
+                for folder, folder_vids in folder_videos.items():
+                    # Skip upload folders
+                    if folder.lower() in upload_folders:
+                        logger.info(f"Skipping upload folder '{folder}' for game detection")
+                        continue
+                    logger.info(f"Processing folder '{folder}': {len(folder_vids)} videos, already in suggestions: {folder in folder_suggestions}")
+                    if len(folder_vids) >= 2 and folder not in folder_suggestions:
+                        logger.info(f"Attempting game detection for folder: '{folder}'")
+                        detected_game = util.detect_game_from_filename(folder, steamgriddb_api_key, path=f"{folder}/")
+
+                        if detected_game:
+                            logger.info(f"Detection result for '{folder}': {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f})")
+                        else:
+                            logger.info(f"No game detected for folder '{folder}'")
+
+                        if detected_game and detected_game['confidence'] >= 0.65:
+                            video_ids = [v.video_id for v in folder_vids]
+                            folder_suggestions[folder] = {
+                                'game_name': detected_game['game_name'],
+                                'steamgriddb_id': detected_game.get('steamgriddb_id'),
+                                'game_id': detected_game.get('game_id'),
+                                'confidence': detected_game['confidence'],
+                                'source': detected_game['source'],
+                                'video_ids': video_ids,
+                                'video_count': len(video_ids)
+                            }
+                            processed_video_ids.update(video_ids)
+                            suggestions_created += 1
+                            _game_scan_state['suggestions_created'] = suggestions_created
+                            logger.info(f"Created folder suggestion: {folder} -> {detected_game['game_name']} ({len(video_ids)} videos)")
+                        elif detected_game:
+                            logger.info(f"Skipping folder '{folder}' - confidence {detected_game['confidence']:.2f} below threshold 0.65")
+
+                # Save folder suggestions
+                if folder_suggestions:
+                    existing_suggestions['_folders'] = folder_suggestions
+                    from fireshare.cli import _save_suggestions
+                    _save_suggestions(existing_suggestions)
+
+                # Process remaining individual videos (not in folder suggestions and no existing suggestion)
+                for i, video in enumerate(videos_needing_suggestions):
+                    _game_scan_state['current'] = i + 1
+
+                    if video.video_id in processed_video_ids:
+                        continue
+
+                    filename = Path(video.path).stem
+                    detected_game = util.detect_game_from_filename(filename, steamgriddb_api_key, path=video.path)
+
+                    if detected_game and detected_game['confidence'] >= 0.65:
+                        save_game_suggestion(video.video_id, detected_game)
+                        suggestions_created += 1
+                        _game_scan_state['suggestions_created'] = suggestions_created
+                        logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f}, source: {detected_game['source']})")
+
+                logger.info(f"Game scan complete: {suggestions_created} suggestions created from {len(unlinked_videos)} unlinked videos")
+
+            except Exception as e:
+                logger.error(f"Error scanning videos for games: {e}")
+            finally:
+                # Brief delay so frontend can display the completed status before hiding
+                import time
+                time.sleep(2)
+                _game_scan_state['is_running'] = False
+
+    thread = threading.Thread(target=run_scan)
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({'started': True}), 202
 
 @api.route('/api/videos')
 @login_required
@@ -291,10 +615,13 @@ def get_video_poster():
     video_id = request.args['id']
     webm_poster_path = Path(current_app.config["PROCESSED_DIRECTORY"], "derived", video_id, "boomerang-preview.webm")
     jpg_poster_path = Path(current_app.config["PROCESSED_DIRECTORY"], "derived", video_id, "poster.jpg")
+
     if request.args.get('animated'):
-        return send_file(webm_poster_path, mimetype='video/webm')
+        response = send_file(webm_poster_path, mimetype='video/webm')
     else:
-        return send_file(jpg_poster_path, mimetype='image/jpg')
+        response = send_file(jpg_poster_path, mimetype='image/jpg')
+
+    return add_cache_headers(response, video_id)
 
 @api.route('/api/video/view', methods=['POST'])
 def add_video_view():
@@ -631,7 +958,7 @@ def get_games():
 
     # If user is authenticated, show all games
     if current_user.is_authenticated:
-        games = GameMetadata.query.all()
+        games = GameMetadata.query.order_by(GameMetadata.name).all()
     else:
         # For public users, only show games that have at least one public (available) video
         games = (
@@ -644,6 +971,7 @@ def get_games():
                 VideoInfo.private.is_(False),
             )
             .distinct()
+            .order_by(GameMetadata.name)
             .all()
         )
 
@@ -659,6 +987,20 @@ def create_game():
 
     if not data.get('steamgriddb_id'):
         return Response(status=400, response='SteamGridDB ID is required.')
+
+    existing_game = GameMetadata.query.filter_by(steamgriddb_id=data['steamgriddb_id']).first()
+    if existing_game:
+        updated = False
+        if data.get('name') and data['name'] != existing_game.name:
+            existing_game.name = data['name']
+            updated = True
+        if data.get('release_date') and data.get('release_date') != existing_game.release_date:
+            existing_game.release_date = data['release_date']
+            updated = True
+        if updated:
+            existing_game.updated_at = datetime.utcnow()
+            db.session.commit()
+        return jsonify(existing_game.json()), 200
 
     # Get API key and initialize client
     api_key = get_steamgriddb_api_key()
@@ -680,6 +1022,12 @@ def create_game():
             status=500,
             response=f"Failed to download game assets: {result['error']}"
         )
+
+    # Re-check for existing game after asset download (handles race condition)
+    existing_game = GameMetadata.query.filter_by(steamgriddb_id=data['steamgriddb_id']).first()
+    if existing_game:
+        current_app.logger.info(f"Game {data['name']} was created by another request, returning existing")
+        return jsonify(existing_game.json()), 200
 
     # Create game metadata (without URL fields - they will be constructed dynamically)
     game = GameMetadata(
@@ -811,7 +1159,8 @@ def get_game_asset(steamgriddb_id, filename):
     }
     mime_type = mime_types.get(ext, 'image/png')
 
-    return send_file(asset_path, mimetype=mime_type)
+    response = send_file(asset_path, mimetype=mime_type)
+    return add_cache_headers(response, f"{steamgriddb_id}-{filename}")
 
 @api.route('/api/games/<int:steamgriddb_id>/videos', methods=["GET"])
 def get_game_videos(steamgriddb_id):
@@ -823,6 +1172,9 @@ def get_game_videos(steamgriddb_id):
 
     videos_json = []
     for link in game.videos:
+        if not link.video:
+            continue
+
         if not current_user.is_authenticated:
             # Only show available, non-private videos to public users
             if not link.video.available:
@@ -859,6 +1211,10 @@ def delete_game(steamgriddb_id):
         paths = current_app.config['PATHS']
         for link in video_links:
             video = link.video
+            if video is None:
+                # Orphaned link - just delete it
+                db.session.delete(link)
+                continue
             logger.info(f"Deleting video: {video.video_id}")
 
             file_path = paths['video'] / video.path
@@ -866,6 +1222,8 @@ def delete_game(steamgriddb_id):
             derived_path = paths['processed'] / 'derived' / video.video_id
 
             # Delete from database
+            VideoGameLink.query.filter_by(video_id=video.video_id).delete()
+            VideoView.query.filter_by(video_id=video.video_id).delete()
             VideoInfo.query.filter_by(video_id=video.video_id).delete()
             Video.query.filter_by(video_id=video.video_id).delete()
 
@@ -903,6 +1261,93 @@ def delete_game(steamgriddb_id):
 
     logger.info(f"Successfully deleted game {game.name}")
     return Response(status=200)
+
+@api.route('/api/videos/<video_id>/game/suggestion', methods=["GET"])
+def get_video_game_suggestion(video_id):
+    """Get automatic game detection suggestion for a video"""
+    from fireshare.cli import get_game_suggestion
+
+    # Check if video is already linked to a game
+    existing_link = VideoGameLink.query.filter_by(video_id=video_id).first()
+    if existing_link:
+        return jsonify(None)
+
+    suggestion = get_game_suggestion(video_id)
+    if not suggestion:
+        return jsonify(None)
+
+    return jsonify({
+        'video_id': video_id,
+        'game_id': suggestion.get('game_id'),
+        'game_name': suggestion.get('game_name'),
+        'steamgriddb_id': suggestion.get('steamgriddb_id'),
+        'confidence': suggestion.get('confidence'),
+        'source': suggestion.get('source')
+    })
+
+@api.route('/api/videos/<video_id>/game/suggestion', methods=["DELETE"])
+@login_required
+def reject_game_suggestion(video_id):
+    """User rejected the game suggestion - remove from storage"""
+    from fireshare.cli import delete_game_suggestion
+
+    if delete_game_suggestion(video_id):
+        logger.info(f"User rejected game suggestion for video {video_id}")
+
+    return Response(status=204)
+
+@api.route('/api/videos/corrupt', methods=["GET"])
+@login_required
+def get_corrupt_videos():
+    """Get a list of all videos marked as corrupt"""
+    from fireshare.cli import get_all_corrupt_videos
+    
+    corrupt_video_ids = get_all_corrupt_videos()
+    
+    # Get video details for all corrupt videos in a single query
+    video_info_map = {}
+    if corrupt_video_ids:
+        video_infos = VideoInfo.query.filter(VideoInfo.video_id.in_(corrupt_video_ids)).all()
+        video_info_map = {vi.video_id: vi for vi in video_infos}
+    
+    corrupt_videos = []
+    for video_id in corrupt_video_ids:
+        vi = video_info_map.get(video_id)
+        if vi:
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': vi.title,
+                'path': vi.video.path if vi.video else None
+            })
+        else:
+            # Video may have been deleted but still in corrupt list
+            corrupt_videos.append({
+                'video_id': video_id,
+                'title': None,
+                'path': None
+            })
+    return jsonify(corrupt_videos)
+
+@api.route('/api/videos/<video_id>/corrupt', methods=["DELETE"])
+@login_required
+def clear_corrupt_status(video_id):
+    """Clear the corrupt status for a specific video so it can be retried"""
+    from fireshare.cli import clear_video_corrupt, is_video_corrupt
+    
+    if not is_video_corrupt(video_id):
+        return Response(status=400, response="Video is not marked as corrupt")
+    
+    clear_video_corrupt(video_id)
+    return Response(status=204)
+
+@api.route('/api/videos/corrupt/clear-all', methods=["DELETE"])
+@login_required
+def clear_all_corrupt_status():
+    """Clear the corrupt status for all videos so they can be retried"""
+    from fireshare.cli import clear_all_corrupt_videos
+    
+    count = clear_all_corrupt_videos()
+    return jsonify({'cleared': count})
 
 @api.after_request
 def after_request(response):

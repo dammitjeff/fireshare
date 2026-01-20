@@ -1,42 +1,50 @@
-#/bin/bash
+#!/bin/bash
+set -e
 
-nginx -g 'daemon on;'
+echo "=== Fireshare Startup ==="
 
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
-useradd appuser || true
+# Create user if it doesn't exist
+useradd appuser 2>/dev/null || true
 
+# Update user and group IDs
 groupmod -o -g "$PGID" appuser
 usermod -o -u "$PUID" appuser
 
+# Set ownership of directories
 chown -R appuser:appuser $DATA_DIRECTORY
 chown -R appuser:appuser $VIDEO_DIRECTORY
 chown -R appuser:appuser $PROCESSED_DIRECTORY
 
-su appuser
-
-echo '
--------------------------------------'
-echo "
-User uid:    $(id -u appuser)
-User gid:    $(id -g appuser)
--------------------------------------
-"
+echo '-------------------------------------'
+echo "User uid:      $(id -u appuser)"
+echo "User gid:      $(id -g appuser)"
+echo '-------------------------------------'
 
 # Remove any lockfiles on startup
-runuser -u appuser -- rm $DATA_DIRECTORY/*.lock 2> /dev/null
+rm -f $DATA_DIRECTORY/*.lock 2>/dev/null || true
+rm -f $DATA_DIRECTORY/jobs.sqlite 2>/dev/null || true
 
-# Remove job db on start
-runuser -u appuser -- rm /jobs.sqlite
 
-# Ensure PATH and LD_LIBRARY_PATH are set for all processes
+# Start nginx as ROOT (it will drop to nginx user automatically)
+echo "Starting nginx..."
+nginx -g 'daemon on;'
+echo "Nginx started successfully"
+
+# Ensure PATH and LD_LIBRARY_PATH are set
 export PATH=/usr/local/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
 
+# Run migrations - try different user-switching commands
+echo "Running database migrations..."
 runuser -u appuser -- env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" flask db upgrade
 
-# Run gunicorn with environment variables preserved
+echo "Database migrations complete"
+
+# Start gunicorn with config file if it exists, otherwise use command-line args
+echo "Starting gunicorn..."
 exec env PATH="$PATH" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
     gunicorn --bind=127.0.0.1:5000 "fireshare:create_app(init_schedule=True)" \
     --user appuser --group appuser --workers 3 --threads 3 --preload
