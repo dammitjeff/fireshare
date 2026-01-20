@@ -282,7 +282,7 @@ def get_folder_suggestions():
     """Get all pending folder suggestions"""
     from fireshare.cli import _load_suggestions
     suggestions = _load_suggestions()
-    logger.info(f"Loaded suggestions file, keys: {list(suggestions.keys())}")
+    logger.info(f"Loaded suggestions file, keys: {len(suggestions.keys())}")
     folders = suggestions.get('_folders', {})
     logger.info(f"Returning {len(folders)} folder suggestions: {list(folders.keys())}")
     return jsonify(folders)
