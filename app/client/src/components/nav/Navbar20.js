@@ -140,6 +140,7 @@ function Navbar20({
   styleToggle = false,
   cardSlider = false,
   toolbar = true,
+  mainPadding = 3,
   children,
 }) {
 
@@ -696,7 +697,7 @@ function Navbar20({
         component="main"
         sx={{
           flexGrow: 1,
-          p: page !== '/w' ? 3 : 0,
+          p: page !== '/w' ? mainPadding : 0,
           width: { sm: `calc(100% - ${open ? drawerWidth : minimizedDrawerWidth}px)` },
         }}
       >

@@ -1,27 +1,27 @@
 export const SORT_OPTIONS = [
   {
     value: 'updated_at desc',
-    label: 'Created Desc',
+    label: 'Newest',
   },
   {
     value: 'updated_at asc',
-    label: 'Created Asc',
-  },
-  {
-    value: 'video_info.title desc',
-    label: 'Title Desc',
+    label: 'Oldest',
   },
   {
     value: 'video_info.title asc',
-    label: 'Title Asc',
+    label: 'A-Z',
+  },
+  {
+    value: 'video_info.title desc',
+    label: 'Z-A',
   },
   {
     value: 'views desc',
-    label: 'Views Desc',
+    label: 'Most Views',
   },
   {
     value: 'views asc',
-    label: 'Views Asc',
+    label: 'Least Views',
   },
 ]
 
