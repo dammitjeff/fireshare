@@ -226,10 +226,6 @@ const Settings = ({ authenticated }) => {
                         setUpdatedConfig((prev) => ({
                           ...prev,
                           app_config: { ...prev.app_config, allow_public_upload: e.target.checked },
-                          ui_config: {
-                            ...prev.ui_config,
-                            show_public_upload: !e.target.checked ? false : prev.ui_config.show_public_upload,
-                          },
                         }))
                       }
                     />
@@ -253,16 +249,16 @@ const Settings = ({ authenticated }) => {
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={updatedConfig.ui_config?.show_public_upload || false}
+                      checked={updatedConfig.app_config?.allow_public_game_tag || false}
                       onChange={(e) =>
                         setUpdatedConfig((prev) => ({
                           ...prev,
-                          ui_config: { ...prev.ui_config, show_public_upload: e.target.checked },
+                          app_config: { ...prev.app_config, allow_public_game_tag: e.target.checked },
                         }))
                       }
                     />
                   }
-                  label="Show Public Upload Card"
+                  label="Allow Public Game Tagging"
                 />
                 <TextField
                   size="small"
