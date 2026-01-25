@@ -651,6 +651,246 @@ def get_video_poster():
 
     return add_cache_headers(response, video_id)
 
+@api.route('/api/video/<video_id>/trim', methods=['POST'])
+@login_required
+def trim_video_endpoint(video_id):
+    """
+    Trim a video to a specific time range.
+
+    Request JSON:
+        start_time: float - Start time in seconds
+        end_time: float - End time in seconds
+        save_as_new: bool - If true, create a new video; if false, replace original (default: false)
+
+    Returns:
+        JSON with the video details (new video if save_as_new, otherwise updated original)
+    """
+    from fireshare import util
+    import tempfile
+    import uuid
+
+    data = request.json
+    if not data:
+        return Response(status=400, response='Request body is required')
+
+    # Validate required fields
+    start_time = data.get('start_time')
+    end_time = data.get('end_time')
+    save_as_new = data.get('save_as_new', False)
+
+    if start_time is None or end_time is None:
+        return Response(status=400, response='start_time and end_time are required')
+
+    try:
+        start_time = float(start_time)
+        end_time = float(end_time)
+    except (TypeError, ValueError):
+        return Response(status=400, response='start_time and end_time must be numbers')
+
+    # Get the video
+    video = Video.query.filter_by(video_id=video_id).first()
+    if not video:
+        return Response(status=404, response='Video not found')
+
+    paths = current_app.config['PATHS']
+
+    # Get the original video file path
+    original_path = paths['video'] / video.path
+    if not original_path.exists():
+        # Try the symlink path
+        original_path = paths['processed'] / 'video_links' / f"{video_id}{video.extension}"
+        if not original_path.exists():
+            return Response(status=404, response='Video file not found')
+
+    # Check if GPU transcoding is enabled
+    config_path = paths['data'] / 'config.json'
+    use_gpu = False
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                use_gpu = config.get('app_config', {}).get('enable_gpu_transcoding', False)
+        except:
+            pass
+
+    # Create a temporary file for the trimmed output
+    temp_dir = paths.get('temp', Path(tempfile.gettempdir()))
+    temp_output = temp_dir / f"trim_{video_id}_{uuid.uuid4().hex}.mp4"
+
+    try:
+        # Perform the trim
+        success, error_msg = util.trim_video(
+            original_path,
+            temp_output,
+            start_time,
+            end_time,
+            use_gpu=use_gpu
+        )
+
+        if not success:
+            return Response(status=500, response=f'Trim failed: {error_msg}')
+
+        if save_as_new:
+            # Create a new video entry
+            new_video_id = util.video_id(temp_output)
+
+            # Determine the new file path (same folder as original)
+            original_folder = Path(video.path).parent
+            original_name = Path(video.path).stem
+            new_filename = f"{original_name}_trimmed.mp4"
+            new_path = original_folder / new_filename
+
+            # Move the temp file to the video directory
+            final_path = paths['video'] / new_path
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(temp_output), str(final_path))
+
+            # Create symlink
+            link_path = paths['processed'] / 'video_links' / f"{new_video_id}.mp4"
+            link_path.parent.mkdir(parents=True, exist_ok=True)
+            if link_path.exists() or link_path.is_symlink():
+                link_path.unlink()
+            link_path.symlink_to(final_path)
+
+            # Get video info
+            duration = util.get_video_duration(final_path)
+            media_info = util.get_media_info(final_path)
+            width, height = None, None
+            if media_info:
+                for stream in media_info:
+                    if stream.get('codec_type') == 'video':
+                        width = stream.get('width')
+                        height = stream.get('height')
+                        break
+
+            # Create database entries
+            new_video = Video(
+                video_id=new_video_id,
+                extension='.mp4',
+                path=str(new_path),
+                available=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.session.add(new_video)
+
+            new_info = VideoInfo(
+                video_id=new_video_id,
+                title=f"{video.info.title} (trimmed)",
+                description=video.info.description or '',
+                duration=duration,
+                width=width,
+                height=height,
+                private=video.info.private,
+                info=json.dumps(media_info) if media_info else None
+            )
+            db.session.add(new_info)
+            db.session.commit()
+
+            # Generate poster and boomerang for the new video
+            derived_dir = paths['processed'] / 'derived' / new_video_id
+            derived_dir.mkdir(parents=True, exist_ok=True)
+
+            poster_path = derived_dir / 'poster.jpg'
+            util.create_poster(final_path, poster_path)
+
+            boomerang_path = derived_dir / 'boomerang-preview.webm'
+            util.create_boomerang_preview(final_path, boomerang_path)
+
+            # Copy game link if exists
+            existing_link = VideoGameLink.query.filter_by(video_id=video_id).first()
+            if existing_link:
+                new_link = VideoGameLink(
+                    video_id=new_video_id,
+                    game_id=existing_link.game_id,
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(new_link)
+                db.session.commit()
+
+            logger.info(f"Created new trimmed video {new_video_id} from {video_id}")
+
+            vjson = new_video.json()
+            vjson["view_count"] = 0
+            return jsonify(vjson), 201
+
+        else:
+            # Replace the original video
+            original_file_path = paths['video'] / video.path
+
+            # Replace the original file with the trimmed version
+            if original_file_path.exists():
+                shutil.move(str(temp_output), str(original_file_path))
+            else:
+                # Original might be elsewhere, update the symlink target
+                link_path = paths['processed'] / 'video_links' / f"{video_id}{video.extension}"
+                if link_path.is_symlink():
+                    target = link_path.resolve()
+                    shutil.move(str(temp_output), str(target))
+                else:
+                    return Response(status=500, response='Could not locate original video file')
+
+            # Update video metadata
+            final_path = paths['video'] / video.path
+            if not final_path.exists():
+                final_path = (paths['processed'] / 'video_links' / f"{video_id}{video.extension}").resolve()
+
+            duration = util.get_video_duration(final_path)
+            media_info = util.get_media_info(final_path)
+            width, height = None, None
+            if media_info:
+                for stream in media_info:
+                    if stream.get('codec_type') == 'video':
+                        width = stream.get('width')
+                        height = stream.get('height')
+                        break
+
+            # Update database
+            video.updated_at = datetime.utcnow()
+            if video.info:
+                video.info.duration = duration
+                video.info.width = width
+                video.info.height = height
+                video.info.info = json.dumps(media_info) if media_info else None
+                # Reset transcode flags since we need to regenerate
+                video.info.has_720p = False
+                video.info.has_1080p = False
+            db.session.commit()
+
+            # Regenerate poster and boomerang
+            derived_dir = paths['processed'] / 'derived' / video_id
+            derived_dir.mkdir(parents=True, exist_ok=True)
+
+            poster_path = derived_dir / 'poster.jpg'
+            util.create_poster(final_path, poster_path)
+
+            boomerang_path = derived_dir / 'boomerang-preview.webm'
+            util.create_boomerang_preview(final_path, boomerang_path)
+
+            # Delete old transcodes (they're now invalid)
+            for quality in ['720p', '1080p']:
+                transcode_path = derived_dir / f"{video_id}-{quality}.mp4"
+                if transcode_path.exists():
+                    transcode_path.unlink()
+                    logger.info(f"Deleted outdated {quality} transcode for {video_id}")
+
+            logger.info(f"Replaced video {video_id} with trimmed version")
+
+            vjson = video.json()
+            vjson["view_count"] = VideoView.count(video_id)
+            return jsonify(vjson), 200
+
+    except Exception as e:
+        logger.error(f"Error trimming video {video_id}: {e}")
+        # Clean up temp file if it exists
+        if temp_output.exists():
+            try:
+                temp_output.unlink()
+            except:
+                pass
+        return Response(status=500, response=f'Trim failed: {str(e)}')
+
+
 @api.route('/api/video/view', methods=['POST'])
 def add_video_view():
     video_id = request.json['video_id']

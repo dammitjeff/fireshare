@@ -721,6 +721,146 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     # This allows the calling code to continue processing other videos
     return (False, 'encoders')
 
+def trim_video(video_path, out_path, start_time, end_time, use_gpu=False, timeout_seconds=None):
+    """
+    Trim a video to a specific time range using FFmpeg with frame-accurate cutting.
+
+    Uses re-encoding for precise cuts at exactly the specified times.
+
+    Args:
+        video_path: Path to the source video
+        out_path: Path for the trimmed output
+        start_time: Start time in seconds (float)
+        end_time: End time in seconds (float)
+        use_gpu: Whether to use GPU acceleration for encoding
+        timeout_seconds: Maximum time allowed for trimming (default: calculated based on duration)
+
+    Returns:
+        tuple: (success: bool, error_message: str or None)
+            - (True, None) if trimming succeeded
+            - (False, error_message) if trimming failed
+    """
+    s = time.time()
+
+    # Validate inputs
+    if start_time < 0:
+        return (False, "Start time cannot be negative")
+
+    if end_time <= start_time:
+        return (False, "End time must be greater than start time")
+
+    # Get video duration to validate end time
+    duration = get_video_duration(video_path)
+    if duration is not None and end_time > duration:
+        return (False, f"End time ({end_time}s) exceeds video duration ({duration}s)")
+
+    # Validate source file
+    is_valid, error_msg = validate_video_file(video_path)
+    if not is_valid:
+        return (False, f"Source video validation failed: {error_msg}")
+
+    # Calculate timeout if not provided (30x duration for re-encode, minimum 5 minutes)
+    if timeout_seconds is None:
+        trim_duration = end_time - start_time
+        timeout_seconds = max(300, int(trim_duration * 30))
+
+    logger.info(f"Trimming video from {start_time}s to {end_time}s (timeout: {timeout_seconds}s)")
+
+    # Convert times to FFmpeg format
+    start_str = str(start_time)
+    end_str = str(end_time)
+
+    try:
+        # Get encoder configuration based on GPU preference
+        mode_key = 'gpu' if use_gpu else 'cpu'
+
+        # Check if we have a cached encoder
+        if _working_encoder_cache[mode_key] is not None:
+            encoder = _working_encoder_cache[mode_key]
+        else:
+            # Use default encoder based on mode
+            if use_gpu and check_nvenc_available('h264_nvenc'):
+                encoder = {
+                    'name': 'H.264 NVENC',
+                    'video_codec': 'h264_nvenc',
+                    'audio_codec': 'aac',
+                    'audio_bitrate': '128k',
+                    'extra_args': ['-preset', 'p4', '-cq:v', '23']
+                }
+            else:
+                encoder = {
+                    'name': 'H.264 CPU',
+                    'video_codec': 'libx264',
+                    'audio_codec': 'aac',
+                    'audio_bitrate': '128k',
+                    'extra_args': ['-preset', 'medium', '-crf', '23']
+                }
+
+        logger.info(f"Using encoder: {encoder['name']}")
+
+        # Frame-accurate trim: -ss after -i for precise seeking
+        cmd = [
+            'ffmpeg', '-v', 'error', '-y',
+            '-i', str(video_path),
+            '-ss', start_str,
+            '-to', end_str,
+            '-c:v', encoder['video_codec']
+        ]
+
+        if 'extra_args' in encoder:
+            cmd.extend(encoder['extra_args'])
+
+        cmd.extend([
+            '-c:a', encoder['audio_codec'],
+            '-b:a', encoder.get('audio_bitrate', '128k'),
+            str(out_path)
+        ])
+
+        logger.debug(f"$ {' '.join(cmd)}")
+
+        result = sp.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+
+        if result.returncode != 0:
+            error_output = result.stderr.strip() if result.stderr else "Unknown error"
+            logger.error(f"FFmpeg trim failed: {error_output}")
+            # Clean up partial output
+            if os.path.exists(str(out_path)):
+                try:
+                    os.remove(str(out_path))
+                except OSError:
+                    pass
+            return (False, f"FFmpeg failed: {error_output[:200]}")
+
+        # Verify output file exists and has content
+        if not os.path.exists(str(out_path)):
+            return (False, "Output file was not created")
+
+        if os.path.getsize(str(out_path)) == 0:
+            os.remove(str(out_path))
+            return (False, "Output file is empty")
+
+        e = time.time()
+        logger.info(f"Trimmed video to {str(out_path)} in {e-s:.2f}s")
+        return (True, None)
+
+    except sp.TimeoutExpired:
+        logger.error(f"Trim operation timed out after {timeout_seconds}s")
+        if os.path.exists(str(out_path)):
+            try:
+                os.remove(str(out_path))
+            except OSError:
+                pass
+        return (False, f"Operation timed out after {timeout_seconds} seconds")
+    except Exception as ex:
+        logger.error(f"Trim operation failed: {ex}")
+        if os.path.exists(str(out_path)):
+            try:
+                os.remove(str(out_path))
+            except OSError:
+                pass
+        return (False, str(ex))
+
+
 def create_boomerang_preview(video_path, out_path, clip_duration=1.5):
     # https://stackoverflow.com/questions/65874316/trim-a-video-and-add-the-boomerang-effect-on-it-with-ffmpeg
     # https://ffmpeg.org/ffmpeg-filters.html#reverse
