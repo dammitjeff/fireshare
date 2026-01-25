@@ -290,8 +290,10 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                   width: '100%',
                   // Smaller video when in trim mode to fit controls
                   maxWidth: trimMode
-                    ? 'min(calc((100vh - 40px - 350px) * 16 / 9), calc(100vw - 40px))'
+                    ? 'min(calc((100vh - 40px - 280px) * 16 / 9), calc(100vw - 40px))'
                     : 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
+                  // Ensure trim controls have enough width
+                  minWidth: trimMode ? 800 : undefined,
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -389,7 +391,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                     )}
                     {/* Show trim controls OR description/game section */}
                     {trimMode ? (
-                      <Paper sx={{ mt: 1, p: 2, background: 'rgba(50, 50, 50, 0.9)' }}>
+                      <Paper sx={{ mt: 1, p: 2, background: 'rgba(7, 30, 58, 0.6)' }}>
                         <TrimControls
                           video={vid}
                           playerRef={playerRef}

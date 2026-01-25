@@ -267,13 +267,13 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
         <Box>
           {/* Time display */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="body2" color="primary">
+            <Typography variant="body2" sx={{ color: '#bbb464' }}>
               Start: {toHHMMSS(startTime)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Duration: {toHHMMSS(trimDuration)}
             </Typography>
-            <Typography variant="body2" color="error">
+            <Typography variant="body2" sx={{ color: '#bbb464' }}>
               End: {toHHMMSS(endTime)}
             </Typography>
           </Box>
@@ -285,8 +285,6 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             sx={{
               position: 'relative',
               height: THUMBNAIL_HEIGHT + 20,
-              borderRadius: 1,
-              overflow: 'hidden',
               cursor: 'pointer',
               userSelect: 'none',
             }}
@@ -338,8 +336,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 left: `${timeToPercent(startTime)}%`,
                 width: `${timeToPercent(endTime) - timeToPercent(startTime)}%`,
                 height: THUMBNAIL_HEIGHT,
-                border: '2px solid #1976d2',
-                borderRadius: 0.5,
+                border: '2px solid #d8db04',
                 boxSizing: 'border-box',
                 pointerEvents: 'none',
               }}
@@ -350,25 +347,14 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
               onMouseDown={(e) => handleTimelineMouseDown(e, 'start')}
               sx={{
                 position: 'absolute',
-                top: 0,
+                top: -10,
                 left: `${timeToPercent(startTime)}%`,
                 transform: 'translateX(-50%)',
-                width: 16,
+                width: 8,
                 height: THUMBNAIL_HEIGHT + 20,
-                background: '#1976d2',
-                borderRadius: 1,
+                background: '#d8db04',
                 cursor: 'ew-resize',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                '&:hover': { background: '#1565c0' },
-                '&::after': {
-                  content: '""',
-                  width: 4,
-                  height: 20,
-                  background: 'rgba(255,255,255,0.5)',
-                  borderRadius: 2,
-                },
+                '&:hover': { background: '#e8eb34' },
               }}
             />
 
@@ -377,25 +363,14 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
               onMouseDown={(e) => handleTimelineMouseDown(e, 'end')}
               sx={{
                 position: 'absolute',
-                top: 0,
+                top: -10,
                 left: `${timeToPercent(endTime)}%`,
                 transform: 'translateX(-50%)',
-                width: 16,
+                width: 8,
                 height: THUMBNAIL_HEIGHT + 20,
-                background: '#d32f2f',
-                borderRadius: 1,
+                background: '#d8db04',
                 cursor: 'ew-resize',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                '&:hover': { background: '#c62828' },
-                '&::after': {
-                  content: '""',
-                  width: 4,
-                  height: 20,
-                  background: 'rgba(255,255,255,0.5)',
-                  borderRadius: 2,
-                },
+                '&:hover': { background: '#e8eb34' },
               }}
             />
 
@@ -419,7 +394,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 2, flexWrap: 'wrap', gap: 1 }}>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <Button
-                variant="outlined"
+                variant="contained"
                 size="small"
                 startIcon={isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
                 onClick={togglePlayback}
@@ -428,9 +403,8 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 {isPlaying ? 'Pause' : 'Preview'}
               </Button>
               <Button
-                variant="outlined"
+                variant="contained"
                 size="small"
-                color="inherit"
                 startIcon={<CloseIcon />}
                 onClick={onCancel}
                 disabled={trimming}
