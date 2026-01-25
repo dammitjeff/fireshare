@@ -15,7 +15,7 @@ import { ConfigService, VideoService, GameService } from '../../services'
 import SnackbarAlert from '../alert/SnackbarAlert'
 import VideoJSPlayer from '../misc/VideoJSPlayer'
 import GameSearch from '../game/GameSearch'
-import VideoTrimmerModal from './VideoTrimmerModal'
+import TrimControls from '../trim/TrimControls'
 
 const URL = getUrl()
 const PURL = getPublicWatchUrl()
@@ -31,7 +31,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
   const [alert, setAlert] = React.useState({ open: false })
   const [autoplay, setAutoplay] = useState(false)
   const [selectedGame, setSelectedGame] = React.useState(null)
-  const [trimmerOpen, setTrimmerOpen] = useState(false)
+  const [trimMode, setTrimMode] = useState(false)
 
   const playerRef = React.useRef()
 
@@ -62,8 +62,15 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
       }
     };
 
-    fetchConfig();  
-  }, []);  
+    fetchConfig();
+  }, []);
+
+  // Reset trim mode when modal closes
+  useEffect(() => {
+    if (!open) {
+      setTrimMode(false)
+    }
+  }, [open])
 
   React.useEffect(() => {
     async function fetch() {
@@ -102,6 +109,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
       setTitle('')
       setDescription('')
       setSelectedGame(null)
+      setTrimMode(false)
       fetch()
     }
   }, [videoId])
@@ -280,7 +288,10 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
               <Box
                 sx={{
                   width: '100%',
-                  maxWidth: 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
+                  // Smaller video when in trim mode to fit controls
+                  maxWidth: trimMode
+                    ? 'min(calc((100vh - 40px - 350px) * 16 / 9), calc(100vw - 40px))'
+                    : 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -298,157 +309,183 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                 />
                 <Grid container justifyContent="center" sx={{ mt: 1 }}>
                   <Grid item>
-                    <ButtonGroup variant="contained" onClick={(e) => e.stopPropagation()}>
-                      <Button onClick={getRandomVideo}>
-                        <ShuffleIcon />
-                      </Button>
-                      {authenticated && (
-                        <Button onClick={handlePrivacyChange} edge="end">
-                          {privateView ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    {/* Hide button bar when in trim mode */}
+                    {!trimMode && (
+                      <ButtonGroup variant="contained" onClick={(e) => e.stopPropagation()}>
+                        <Button onClick={getRandomVideo}>
+                          <ShuffleIcon />
                         </Button>
-                      )}
-                      <TextField
-                        sx={{
-                          textAlign: 'center',
-                          background: 'rgba(50, 50, 50, 0.9)',
-                          '& .MuiOutlinedInput-root': {
-                            borderRadius: 0,
-                            width: {
-                              xs: 'auto',
-                              sm: 350,
-                              md: 450,
-                            },
-                          },
-                          '& .MuiInputBase-input.Mui-disabled': {
-                            WebkitTextFillColor: '#fff',
-                          },
-                        }}
-                        size="small"
-                        value={title}
-                        placeholder="Video Title"
-                        disabled={!authenticated}
-                        onChange={(e) => handleTitleChange(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && update()}
-                        InputProps={{
-                          endAdornment: authenticated && (
-                            <InputAdornment position="end">
-                              <IconButton
-                                disabled={!updateable}
-                                sx={
-                                  updateable
-                                    ? {
-                                        animation: 'blink-blue 0.5s ease-in-out infinite alternate',
-                                      }
-                                    : {}
-                                }
-                                onClick={update}
-                                edge="end"
-                              >
-                                <SaveIcon />
-                              </IconButton>
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                      <CopyToClipboard text={`${PURL}${vid.video_id}`}>
-                        <Button
-                          onMouseDown={handleMouseDown}
-                          onClick={() =>
-                            setAlert({
-                              type: 'info',
-                              message: 'Link copied to clipboard',
-                              open: true,
-                            })
-                          }
-                        >
-                          <LinkIcon />
-                        </Button>
-                      </CopyToClipboard>
-                      <Button onClick={copyTimestamp}>
-                        <AccessTimeIcon />
-                      </Button>
-                      {authenticated && (
-                        <Button onClick={() => setTrimmerOpen(true)}>
-                          <ContentCutIcon />
-                        </Button>
-                      )}
-                    </ButtonGroup>
-                    {(authenticated || description) && (
-                      <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
+                        {authenticated && (
+                          <Button onClick={handlePrivacyChange} edge="end">
+                            {privateView ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                          </Button>
+                        )}
                         <TextField
-                          fullWidth
-                          disabled={!authenticated}
                           sx={{
+                            textAlign: 'center',
+                            background: 'rgba(50, 50, 50, 0.9)',
+                            '& .MuiOutlinedInput-root': {
+                              borderRadius: 0,
+                              width: {
+                                xs: 'auto',
+                                sm: 350,
+                                md: 450,
+                              },
+                            },
                             '& .MuiInputBase-input.Mui-disabled': {
                               WebkitTextFillColor: '#fff',
                             },
-                            '& .MuiOutlinedInput-notchedOutline': {
-                              border: 'none',
-                            },
                           }}
                           size="small"
-                          placeholder="Enter a video description..."
-                          value={description || ''}
-                          onChange={(e) => handleDescriptionChange(e.target.value)}
-                          rows={2}
-                          multiline
-                          onClick={(e) => e.stopPropagation()}
+                          value={title}
+                          placeholder="Video Title"
+                          disabled={!authenticated}
+                          onChange={(e) => handleTitleChange(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && update()}
+                          InputProps={{
+                            endAdornment: authenticated && (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  disabled={!updateable}
+                                  sx={
+                                    updateable
+                                      ? {
+                                          animation: 'blink-blue 0.5s ease-in-out infinite alternate',
+                                        }
+                                      : {}
+                                  }
+                                  onClick={update}
+                                  edge="end"
+                                >
+                                  <SaveIcon />
+                                </IconButton>
+                              </InputAdornment>
+                            ),
+                          }}
                         />
-                      </Paper>
-                    )}
-                    {/* Game linking */}
-                    {(authenticated || getSetting('ui_config')?.allow_public_game_tag) && (
-                      <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
-                        {selectedGame ? (
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              height: 40,
-                              pl: 1.75,
-                              pr: 0.5,
-                            }}
-                          >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <SportsEsportsIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
-                              <Box
-                                component="span"
-                                sx={{
-                                  color: 'rgba(255, 255, 255, 0.7)',
-                                  fontSize: '0.875rem',
-                                }}
-                              >
-                                {selectedGame.name}
-                              </Box>
-                            </Box>
-                            <IconButton
-                              onClick={handleUnlinkGame}
-                              size="small"
-                              sx={{
-                                color: 'rgba(255, 255, 255, 0.5)',
-                                '&:hover': {
-                                  color: 'rgba(255, 255, 255, 0.9)',
-                                },
-                              }}
-                            >
-                              <CloseIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
-                        ) : (
-                          <GameSearch
-                            onGameLinked={handleGameLinked}
-                            onError={(err) =>
+                        <CopyToClipboard text={`${PURL}${vid.video_id}`}>
+                          <Button
+                            onMouseDown={handleMouseDown}
+                            onClick={() =>
                               setAlert({
+                                type: 'info',
+                                message: 'Link copied to clipboard',
                                 open: true,
-                                type: 'error',
-                                message: err.response?.data || 'Error linking game',
                               })
                             }
-                            placeholder="Search for a game..."
-                          />
+                          >
+                            <LinkIcon />
+                          </Button>
+                        </CopyToClipboard>
+                        <Button onClick={copyTimestamp}>
+                          <AccessTimeIcon />
+                        </Button>
+                        {authenticated && (
+                          <Button onClick={() => setTrimMode(true)}>
+                            <ContentCutIcon />
+                          </Button>
                         )}
+                      </ButtonGroup>
+                    )}
+                    {/* Show trim controls OR description/game section */}
+                    {trimMode ? (
+                      <Paper sx={{ mt: 1, p: 2, background: 'rgba(50, 50, 50, 0.9)' }}>
+                        <TrimControls
+                          video={vid}
+                          playerRef={playerRef}
+                          onTrimComplete={(updatedVideo, isNew) => {
+                            setTrimMode(false)
+                            if (isNew) {
+                              updateCallback && updateCallback({ id: vid.video_id, refresh: true })
+                            } else {
+                              setVideo(updatedVideo)
+                              updateCallback && updateCallback({ id: vid.video_id, refresh: true })
+                            }
+                          }}
+                          onCancel={() => setTrimMode(false)}
+                          onAlert={setAlert}
+                        />
                       </Paper>
+                    ) : (
+                      <>
+                        {(authenticated || description) && (
+                          <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
+                            <TextField
+                              fullWidth
+                              disabled={!authenticated}
+                              sx={{
+                                '& .MuiInputBase-input.Mui-disabled': {
+                                  WebkitTextFillColor: '#fff',
+                                },
+                                '& .MuiOutlinedInput-notchedOutline': {
+                                  border: 'none',
+                                },
+                              }}
+                              size="small"
+                              placeholder="Enter a video description..."
+                              value={description || ''}
+                              onChange={(e) => handleDescriptionChange(e.target.value)}
+                              rows={2}
+                              multiline
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </Paper>
+                        )}
+                        {/* Game linking */}
+                        {(authenticated || getSetting('ui_config')?.allow_public_game_tag) && (
+                          <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
+                            {selectedGame ? (
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  height: 40,
+                                  pl: 1.75,
+                                  pr: 0.5,
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <SportsEsportsIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      color: 'rgba(255, 255, 255, 0.7)',
+                                      fontSize: '0.875rem',
+                                    }}
+                                  >
+                                    {selectedGame.name}
+                                  </Box>
+                                </Box>
+                                <IconButton
+                                  onClick={handleUnlinkGame}
+                                  size="small"
+                                  sx={{
+                                    color: 'rgba(255, 255, 255, 0.5)',
+                                    '&:hover': {
+                                      color: 'rgba(255, 255, 255, 0.9)',
+                                    },
+                                  }}
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            ) : (
+                              <GameSearch
+                                onGameLinked={handleGameLinked}
+                                onError={(err) =>
+                                  setAlert({
+                                    open: true,
+                                    type: 'error',
+                                    message: err.response?.data || 'Error linking game',
+                                  })
+                                }
+                                placeholder="Search for a game..."
+                              />
+                            )}
+                          </Paper>
+                        )}
+                      </>
                     )}
                   </Grid>
                 </Grid>
@@ -457,30 +494,6 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
           </Paper>
         </Slide>
       </Modal>
-      <VideoTrimmerModal
-        open={trimmerOpen}
-        onClose={() => setTrimmerOpen(false)}
-        video={vid}
-        onTrimComplete={(updatedVideo, isNew) => {
-          setTrimmerOpen(false)
-          if (isNew) {
-            setAlert({
-              type: 'success',
-              message: 'New clip created! Refreshing...',
-              open: true,
-            })
-          } else {
-            // Update current video with new duration
-            setVideo(updatedVideo)
-            setAlert({
-              type: 'success',
-              message: 'Video trimmed successfully!',
-              open: true,
-            })
-          }
-          updateCallback && updateCallback({ id: vid.video_id, refresh: true })
-        }}
-      />
     </>
   )
 }
