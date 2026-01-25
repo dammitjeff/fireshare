@@ -6,6 +6,8 @@ import {
   CircularProgress,
   FormControlLabel,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import ContentCutIcon from '@mui/icons-material/ContentCut'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
@@ -22,6 +24,9 @@ const THUMBNAIL_HEIGHT = 50
 const THUMBNAIL_QUALITY = 0.5
 
 const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) => {
+  const theme = useTheme()
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const thumbnailHeight = isSmallScreen ? 40 : THUMBNAIL_HEIGHT
   const [thumbnails, setThumbnails] = useState([])
   const [loading, setLoading] = useState(true)
   const [trimming, setTrimming] = useState(false)
@@ -50,8 +55,8 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     const interval = duration / THUMBNAIL_COUNT
 
     const aspectRatio = videoEl.videoWidth / videoEl.videoHeight
-    canvas.width = Math.round(THUMBNAIL_HEIGHT * aspectRatio)
-    canvas.height = THUMBNAIL_HEIGHT
+    canvas.width = Math.round(thumbnailHeight * aspectRatio)
+    canvas.height = thumbnailHeight
 
     for (let i = 0; i < THUMBNAIL_COUNT; i++) {
       const time = i * interval
@@ -74,7 +79,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     setThumbnails(thumbs)
     setLoading(false)
     videoEl.currentTime = 0
-  }, [video, duration])
+  }, [video, duration, thumbnailHeight])
 
   // Initialize
   useEffect(() => {
@@ -136,12 +141,20 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     setDragging(handle)
   }
 
+  const handleTimelineTouchStart = (e, handle) => {
+    e.preventDefault()
+    setDragging(handle)
+  }
+
   const handleTimelineMouseMove = useCallback(
     (e) => {
       if (!dragging || !timelineRef.current) return
 
+      if (e.cancelable) e.preventDefault()
+
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
       const rect = timelineRef.current.getBoundingClientRect()
-      const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
+      const percent = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
       const time = percentToTime(percent)
 
       if (dragging === 'start') {
@@ -176,9 +189,13 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     if (dragging) {
       window.addEventListener('mousemove', handleTimelineMouseMove)
       window.addEventListener('mouseup', handleTimelineMouseUp)
+      window.addEventListener('touchmove', handleTimelineMouseMove, { passive: false })
+      window.addEventListener('touchend', handleTimelineMouseUp)
       return () => {
         window.removeEventListener('mousemove', handleTimelineMouseMove)
         window.removeEventListener('mouseup', handleTimelineMouseUp)
+        window.removeEventListener('touchmove', handleTimelineMouseMove)
+        window.removeEventListener('touchend', handleTimelineMouseUp)
       }
     }
   }, [dragging, handleTimelineMouseMove, handleTimelineMouseUp])
@@ -284,13 +301,16 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             onClick={handleTimelineClick}
             sx={{
               position: 'relative',
-              height: THUMBNAIL_HEIGHT + 20,
+              height: thumbnailHeight + 20,
               cursor: 'pointer',
               userSelect: 'none',
+              touchAction: 'none',
+              overscrollBehavior: 'none',
+              mx: { xs: 2, sm: 0 },
             }}
           >
             {/* Thumbnails */}
-            <Box sx={{ display: 'flex', height: THUMBNAIL_HEIGHT }}>
+            <Box sx={{ display: 'flex', height: thumbnailHeight }}>
               {thumbnails.map((thumb, i) => (
                 <Box
                   key={i}
@@ -311,7 +331,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 top: 0,
                 left: 0,
                 width: `${timeToPercent(startTime)}%`,
-                height: THUMBNAIL_HEIGHT,
+                height: thumbnailHeight,
                 background: 'rgba(0, 0, 0, 0.7)',
                 pointerEvents: 'none',
               }}
@@ -322,7 +342,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 top: 0,
                 right: 0,
                 width: `${100 - timeToPercent(endTime)}%`,
-                height: THUMBNAIL_HEIGHT,
+                height: thumbnailHeight,
                 background: 'rgba(0, 0, 0, 0.7)',
                 pointerEvents: 'none',
               }}
@@ -335,7 +355,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 top: 0,
                 left: `${timeToPercent(startTime)}%`,
                 width: `${timeToPercent(endTime) - timeToPercent(startTime)}%`,
-                height: THUMBNAIL_HEIGHT,
+                height: thumbnailHeight,
                 border: '2px solid #d8db04',
                 boxSizing: 'border-box',
                 pointerEvents: 'none',
@@ -345,15 +365,17 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             {/* Start handle */}
             <Box
               onMouseDown={(e) => handleTimelineMouseDown(e, 'start')}
+              onTouchStart={(e) => handleTimelineTouchStart(e, 'start')}
               sx={{
                 position: 'absolute',
                 top: -10,
                 left: `${timeToPercent(startTime)}%`,
                 transform: 'translateX(-50%)',
-                width: 8,
-                height: THUMBNAIL_HEIGHT + 20,
+                width: { xs: 16, sm: 8 },
+                height: thumbnailHeight + 20,
                 background: '#d8db04',
                 cursor: 'ew-resize',
+                touchAction: 'none',
                 '&:hover': { background: '#e8eb34' },
               }}
             />
@@ -361,15 +383,17 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             {/* End handle */}
             <Box
               onMouseDown={(e) => handleTimelineMouseDown(e, 'end')}
+              onTouchStart={(e) => handleTimelineTouchStart(e, 'end')}
               sx={{
                 position: 'absolute',
                 top: -10,
                 left: `${timeToPercent(endTime)}%`,
                 transform: 'translateX(-50%)',
-                width: 8,
-                height: THUMBNAIL_HEIGHT + 20,
+                width: { xs: 16, sm: 8 },
+                height: thumbnailHeight + 20,
                 background: '#d8db04',
                 cursor: 'ew-resize',
+                touchAction: 'none',
                 '&:hover': { background: '#e8eb34' },
               }}
             />
@@ -381,7 +405,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 top: 0,
                 left: `${timeToPercent(currentTime)}%`,
                 width: 2,
-                height: THUMBNAIL_HEIGHT,
+                height: thumbnailHeight,
                 background: '#fff',
                 boxShadow: '0 0 4px rgba(0,0,0,0.5)',
                 pointerEvents: 'none',
@@ -390,15 +414,33 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             />
           </Box>
 
-          {/* Controls row */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 2, flexWrap: 'wrap', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* Controls row - stacks vertically on mobile */}
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            mt: 2,
+            gap: 1,
+            flexDirection: { xs: 'column', sm: 'row' },
+          }}>
+            <Box sx={{
+              display: 'flex',
+              gap: 1,
+              width: { xs: '100%', sm: 'auto' },
+              flexDirection: { xs: 'column', sm: 'row' },
+            }}>
               <Button
                 variant="contained"
                 size="small"
                 startIcon={isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
                 onClick={togglePlayback}
                 disabled={trimming}
+                sx={{
+                  width: { xs: '100%', sm: 'auto' },
+                  py: { xs: 0.5 },
+                  minHeight: { xs: 32 },
+                  fontSize: { xs: '0.875rem' },
+                }}
               >
                 {isPlaying ? 'Pause' : 'Preview'}
               </Button>
@@ -408,12 +450,27 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 startIcon={<CloseIcon />}
                 onClick={onCancel}
                 disabled={trimming}
+                sx={{
+                  width: { xs: '100%', sm: 'auto' },
+                  py: { xs: 0.5 },
+                  minHeight: { xs: 32 },
+                  fontSize: { xs: '0.875rem' },
+                }}
               >
                 Cancel
               </Button>
             </Box>
 
             <FormControlLabel
+              sx={{
+                width: { xs: '100%', sm: 'auto' },
+                display: 'flex',
+                justifyContent: { xs: 'center', sm: 'flex-start' },
+                mx: 0,
+                '& .MuiFormControlLabel-label': {
+                  textAlign: { xs: 'center', sm: 'left' },
+                },
+              }}
               control={
                 <Checkbox
                   checked={saveAsNew}
@@ -431,7 +488,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             fullWidth
             variant="contained"
             color="primary"
-            startIcon={trimming ? <CircularProgress size={20} color="inherit" /> : <ContentCutIcon />}
+            startIcon={trimming ? <CircularProgress size={20} color="inherit" /> : undefined}
             onClick={handleTrim}
             disabled={trimming || trimDuration < 0.5}
             sx={{ mt: 2 }}

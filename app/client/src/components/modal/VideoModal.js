@@ -255,7 +255,18 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
       </SnackbarAlert>
       <Modal open={open} onClose={onClose} closeAfterTransition disableAutoFocus={true}>
         <Slide in={open}>
-          <Paper sx={{ height: '100%', borderRadius: '0px', overflowY: 'auto', background: 'rgba(0, 0, 0, 0.4)', px: '20px', pt: '20px', pb: 0 }}>
+          <Paper
+            sx={{
+              height: '100dvh',
+              borderRadius: '0px',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              background: 'rgba(0, 0, 0, 0.4)',
+              px: '2px',
+              pt: '20px',
+              pb: 0,
+            }}
+          >
             <IconButton
               color="inherit"
               onClick={onClose}
@@ -281,19 +292,17 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                maxHeight: 'calc(100vh - 40px)',
-                overflow: 'hidden',
+                overflowX: 'hidden',
+                width: '100%',
               }}
             >
               <Box
                 sx={{
                   width: '100%',
-                  // Smaller video when in trim mode to fit controls
-                  maxWidth: trimMode
-                    ? 'min(calc((100vh - 40px - 280px) * 16 / 9), calc(100vw - 40px))'
-                    : 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
-                  // Ensure trim controls have enough width
-                  minWidth: trimMode ? 800 : undefined,
+                  // Allow full-width video; modal scrolls if height is constrained.
+                  maxWidth: '100%',
+                  // Ensure trim controls have enough width on larger screens
+                  minWidth: trimMode ? { xs: 'auto', sm: 500, md: 700 } : undefined,
                   display: 'flex',
                   flexDirection: 'column',
                 }}
@@ -309,8 +318,8 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                     playerRef.current = player
                   }}
                 />
-                <Grid container justifyContent="center" sx={{ mt: 1 }}>
-                  <Grid item>
+                <Grid container justifyContent="center" sx={{ mt: 1, width: '100%' }}>
+                  <Grid item xs={trimMode ? 12 : undefined} sx={{ width: trimMode ? '100%' : 'auto' }}>
                     {/* Hide button bar when in trim mode */}
                     {!trimMode && (
                       <ButtonGroup variant="contained" onClick={(e) => e.stopPropagation()}>
@@ -391,7 +400,15 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                     )}
                     {/* Show trim controls OR description/game section */}
                     {trimMode ? (
-                      <Paper sx={{ mt: 1, p: 2, background: 'rgba(7, 30, 58, 0.6)' }}>
+                      <Paper
+                        sx={{
+                          mt: 1,
+                          p: 2,
+                          background: 'rgba(7, 30, 58, 0.6)',
+                          width: '100%',
+                          minWidth: { xs: 'auto', sm: 500, md: 700 },
+                        }}
+                      >
                         <TrimControls
                           video={vid}
                           playerRef={playerRef}
