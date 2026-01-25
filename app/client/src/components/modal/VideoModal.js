@@ -8,12 +8,14 @@ import CloseIcon from '@mui/icons-material/Close'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
+import ContentCutIcon from '@mui/icons-material/ContentCut'
 import { CopyToClipboard } from 'react-copy-to-clipboard'
 import { copyToClipboard, getPublicWatchUrl, getServedBy, getUrl, getVideoSources, getSetting } from '../../common/utils'
 import { ConfigService, VideoService, GameService } from '../../services'
 import SnackbarAlert from '../alert/SnackbarAlert'
 import VideoJSPlayer from '../misc/VideoJSPlayer'
 import GameSearch from '../game/GameSearch'
+import VideoTrimmerModal from './VideoTrimmerModal'
 
 const URL = getUrl()
 const PURL = getPublicWatchUrl()
@@ -29,6 +31,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
   const [alert, setAlert] = React.useState({ open: false })
   const [autoplay, setAutoplay] = useState(false)
   const [selectedGame, setSelectedGame] = React.useState(null)
+  const [trimmerOpen, setTrimmerOpen] = useState(false)
 
   const playerRef = React.useRef()
 
@@ -364,6 +367,11 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                       <Button onClick={copyTimestamp}>
                         <AccessTimeIcon />
                       </Button>
+                      {authenticated && (
+                        <Button onClick={() => setTrimmerOpen(true)}>
+                          <ContentCutIcon />
+                        </Button>
+                      )}
                     </ButtonGroup>
                     {(authenticated || description) && (
                       <Paper sx={{ mt: 1, background: 'rgba(50, 50, 50, 0.9)' }}>
@@ -449,6 +457,30 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
           </Paper>
         </Slide>
       </Modal>
+      <VideoTrimmerModal
+        open={trimmerOpen}
+        onClose={() => setTrimmerOpen(false)}
+        video={vid}
+        onTrimComplete={(updatedVideo, isNew) => {
+          setTrimmerOpen(false)
+          if (isNew) {
+            setAlert({
+              type: 'success',
+              message: 'New clip created! Refreshing...',
+              open: true,
+            })
+          } else {
+            // Update current video with new duration
+            setVideo(updatedVideo)
+            setAlert({
+              type: 'success',
+              message: 'Video trimmed successfully!',
+              open: true,
+            })
+          }
+          updateCallback && updateCallback({ id: vid.video_id, refresh: true })
+        }}
+      />
     </>
   )
 }

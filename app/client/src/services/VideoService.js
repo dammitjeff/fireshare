@@ -125,6 +125,15 @@ const service = {
   rejectGameSuggestion(videoId) {
     return Api().delete(`/api/videos/${videoId}/game/suggestion`)
   },
+  trimVideo(videoId, startTime, endTime, saveAsNew = false) {
+    return Api().post(`/api/video/${videoId}/trim`, {
+      start_time: startTime,
+      end_time: endTime,
+      save_as_new: saveAsNew,
+    }, {
+      timeout: 600000, // 10 minutes - trimming can take a while
+    })
+  },
 }
 
 export default service
