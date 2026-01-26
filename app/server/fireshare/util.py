@@ -798,12 +798,16 @@ def trim_video(video_path, out_path, start_time, end_time, use_gpu=False, timeou
 
         logger.info(f"Using encoder: {encoder['name']}")
 
-        # Frame-accurate trim: -ss after -i for precise seeking
+        # Fast seek with frame-accurate output:
+        # -ss BEFORE -i: FFmpeg seeks to nearest keyframe first (very fast)
+        # -t duration: Only encode the clip length
+        # Still re-encodes for frame-accurate cuts, but much faster for long videos
+        trim_duration = end_time - start_time
         cmd = [
             'ffmpeg', '-v', 'error', '-y',
-            '-i', str(video_path),
             '-ss', start_str,
-            '-to', end_str,
+            '-i', str(video_path),
+            '-t', str(trim_duration),
             '-c:v', encoder['video_codec']
         ]
 

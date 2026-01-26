@@ -668,6 +668,10 @@ def trim_video_endpoint(video_id):
     from fireshare import util
     import tempfile
     import uuid
+    import time
+
+    total_start = time.time()
+    logger.info(f"[TRIM] Starting trim for video {video_id}")
 
     data = request.json
     if not data:
@@ -719,6 +723,7 @@ def trim_video_endpoint(video_id):
 
     try:
         # Perform the trim
+        step_start = time.time()
         success, error_msg = util.trim_video(
             original_path,
             temp_output,
@@ -726,13 +731,16 @@ def trim_video_endpoint(video_id):
             end_time,
             use_gpu=use_gpu
         )
+        logger.info(f"[TRIM] FFmpeg trim took {time.time() - step_start:.2f}s")
 
         if not success:
             return Response(status=500, response=f'Trim failed: {error_msg}')
 
         if save_as_new:
             # Create a new video entry
+            step_start = time.time()
             new_video_id = util.video_id(temp_output)
+            logger.info(f"[TRIM] Generate video ID took {time.time() - step_start:.2f}s")
 
             # Determine the new file path (same folder as original)
             original_folder = Path(video.path).parent
@@ -741,9 +749,11 @@ def trim_video_endpoint(video_id):
             new_path = original_folder / new_filename
 
             # Move the temp file to the video directory
+            step_start = time.time()
             final_path = paths['video'] / new_path
             final_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(temp_output), str(final_path))
+            logger.info(f"[TRIM] File move took {time.time() - step_start:.2f}s")
 
             # Create symlink
             link_path = paths['processed'] / 'video_links' / f"{new_video_id}.mp4"
@@ -753,8 +763,10 @@ def trim_video_endpoint(video_id):
             link_path.symlink_to(final_path)
 
             # Get video info
+            step_start = time.time()
             duration = util.get_video_duration(final_path)
             media_info = util.get_media_info(final_path)
+            logger.info(f"[TRIM] Get video metadata took {time.time() - step_start:.2f}s")
             width, height = None, None
             if media_info:
                 for stream in media_info:
@@ -791,11 +803,15 @@ def trim_video_endpoint(video_id):
             derived_dir = paths['processed'] / 'derived' / new_video_id
             derived_dir.mkdir(parents=True, exist_ok=True)
 
+            step_start = time.time()
             poster_path = derived_dir / 'poster.jpg'
             util.create_poster(final_path, poster_path)
+            logger.info(f"[TRIM] Create poster took {time.time() - step_start:.2f}s")
 
+            step_start = time.time()
             boomerang_path = derived_dir / 'boomerang-preview.webm'
             util.create_boomerang_preview(final_path, boomerang_path)
+            logger.info(f"[TRIM] Create boomerang preview took {time.time() - step_start:.2f}s")
 
             # Copy game link if exists
             existing_link = VideoGameLink.query.filter_by(video_id=video_id).first()
@@ -808,7 +824,7 @@ def trim_video_endpoint(video_id):
                 db.session.add(new_link)
                 db.session.commit()
 
-            logger.info(f"Created new trimmed video {new_video_id} from {video_id}")
+            logger.info(f"[TRIM] Created new trimmed video {new_video_id} from {video_id} - TOTAL: {time.time() - total_start:.2f}s")
 
             vjson = new_video.json()
             vjson["view_count"] = 0
@@ -816,6 +832,7 @@ def trim_video_endpoint(video_id):
 
         else:
             # Replace the original video
+            step_start = time.time()
             original_file_path = paths['video'] / video.path
 
             # Replace the original file with the trimmed version
@@ -829,14 +846,17 @@ def trim_video_endpoint(video_id):
                     shutil.move(str(temp_output), str(target))
                 else:
                     return Response(status=500, response='Could not locate original video file')
+            logger.info(f"[TRIM] File move took {time.time() - step_start:.2f}s")
 
             # Update video metadata
             final_path = paths['video'] / video.path
             if not final_path.exists():
                 final_path = (paths['processed'] / 'video_links' / f"{video_id}{video.extension}").resolve()
 
+            step_start = time.time()
             duration = util.get_video_duration(final_path)
             media_info = util.get_media_info(final_path)
+            logger.info(f"[TRIM] Get video metadata took {time.time() - step_start:.2f}s")
             width, height = None, None
             if media_info:
                 for stream in media_info:
@@ -861,20 +881,24 @@ def trim_video_endpoint(video_id):
             derived_dir = paths['processed'] / 'derived' / video_id
             derived_dir.mkdir(parents=True, exist_ok=True)
 
+            step_start = time.time()
             poster_path = derived_dir / 'poster.jpg'
             util.create_poster(final_path, poster_path)
+            logger.info(f"[TRIM] Create poster took {time.time() - step_start:.2f}s")
 
+            step_start = time.time()
             boomerang_path = derived_dir / 'boomerang-preview.webm'
             util.create_boomerang_preview(final_path, boomerang_path)
+            logger.info(f"[TRIM] Create boomerang preview took {time.time() - step_start:.2f}s")
 
             # Delete old transcodes (they're now invalid)
             for quality in ['720p', '1080p']:
                 transcode_path = derived_dir / f"{video_id}-{quality}.mp4"
                 if transcode_path.exists():
                     transcode_path.unlink()
-                    logger.info(f"Deleted outdated {quality} transcode for {video_id}")
+                    logger.info(f"[TRIM] Deleted outdated {quality} transcode for {video_id}")
 
-            logger.info(f"Replaced video {video_id} with trimmed version")
+            logger.info(f"[TRIM] Replaced video {video_id} with trimmed version - TOTAL: {time.time() - total_start:.2f}s")
 
             vjson = video.json()
             vjson["view_count"] = VideoView.count(video_id)

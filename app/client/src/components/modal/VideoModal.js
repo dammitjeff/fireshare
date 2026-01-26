@@ -299,9 +299,9 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
               <Box
                 sx={{
                   width: '100%',
-                  // Allow full-width video; modal scrolls if height is constrained.
-                  maxWidth: '100%',
-                  // Ensure trim controls have enough width on larger screens
+                  maxWidth: trimMode
+                    ? 'min(calc((100vh - 40px - 280px) * 16 / 9), calc(100vw - 40px))'
+                    : 'min(calc((100vh - 40px - 200px) * 16 / 9), calc(100vw - 40px))',
                   minWidth: trimMode ? { xs: 'auto', sm: 500, md: 700 } : undefined,
                   display: 'flex',
                   flexDirection: 'column',

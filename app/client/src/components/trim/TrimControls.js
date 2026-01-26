@@ -9,7 +9,6 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material'
-import ContentCutIcon from '@mui/icons-material/ContentCut'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import PauseIcon from '@mui/icons-material/Pause'
 import CloseIcon from '@mui/icons-material/Close'
@@ -22,6 +21,33 @@ const SERVED_BY = getServedBy()
 const THUMBNAIL_COUNT = 10
 const THUMBNAIL_HEIGHT = 50
 const THUMBNAIL_QUALITY = 0.5
+
+const handleStyle = (thumbnailHeight) => ({
+  position: 'absolute',
+  top: -10,
+  transform: 'translateX(-50%)',
+  width: { xs: 16, sm: 8 },
+  height: thumbnailHeight + 20,
+  background: '#d8db04',
+  cursor: 'ew-resize',
+  touchAction: 'none',
+  '&:hover': { background: '#e8eb34' },
+})
+
+const responsiveButtonStyle = {
+  width: { xs: '100%', sm: 'auto' },
+  py: { xs: 0.5 },
+  minHeight: { xs: 32 },
+  fontSize: { xs: '0.875rem' },
+}
+
+const overlayStyle = (thumbnailHeight) => ({
+  position: 'absolute',
+  top: 0,
+  height: thumbnailHeight,
+  background: 'rgba(0, 0, 0, 0.7)',
+  pointerEvents: 'none',
+})
 
 const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) => {
   const theme = useTheme()
@@ -136,20 +162,14 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
   const timeToPercent = (time) => (time / duration) * 100
   const percentToTime = (percent) => (percent / 100) * duration
 
-  const handleTimelineMouseDown = (e, handle) => {
+  const handleDragStart = (e, handle) => {
     e.preventDefault()
     setDragging(handle)
   }
 
-  const handleTimelineTouchStart = (e, handle) => {
-    e.preventDefault()
-    setDragging(handle)
-  }
-
-  const handleTimelineMouseMove = useCallback(
+  const handleDrag = useCallback(
     (e) => {
       if (!dragging || !timelineRef.current) return
-
       if (e.cancelable) e.preventDefault()
 
       const clientX = e.touches ? e.touches[0].clientX : e.clientX
@@ -166,18 +186,13 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     [dragging, startTime, endTime, duration]
   )
 
-  const handleTimelineMouseUp = useCallback(() => {
-    setDragging(null)
-  }, [])
+  const handleDragEnd = useCallback(() => setDragging(null), [])
 
-  // Click on timeline to seek
-  const handleTimelineClick = (e) => {
+  const handleSeek = (e) => {
     if (dragging || !timelineRef.current) return
-
     const rect = timelineRef.current.getBoundingClientRect()
     const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100))
     const time = percentToTime(percent)
-
     const player = playerRef?.current
     if (player) {
       player.currentTime(time)
@@ -187,18 +202,18 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
 
   useEffect(() => {
     if (dragging) {
-      window.addEventListener('mousemove', handleTimelineMouseMove)
-      window.addEventListener('mouseup', handleTimelineMouseUp)
-      window.addEventListener('touchmove', handleTimelineMouseMove, { passive: false })
-      window.addEventListener('touchend', handleTimelineMouseUp)
+      window.addEventListener('mousemove', handleDrag)
+      window.addEventListener('mouseup', handleDragEnd)
+      window.addEventListener('touchmove', handleDrag, { passive: false })
+      window.addEventListener('touchend', handleDragEnd)
       return () => {
-        window.removeEventListener('mousemove', handleTimelineMouseMove)
-        window.removeEventListener('mouseup', handleTimelineMouseUp)
-        window.removeEventListener('touchmove', handleTimelineMouseMove)
-        window.removeEventListener('touchend', handleTimelineMouseUp)
+        window.removeEventListener('mousemove', handleDrag)
+        window.removeEventListener('mouseup', handleDragEnd)
+        window.removeEventListener('touchmove', handleDrag)
+        window.removeEventListener('touchend', handleDragEnd)
       }
     }
-  }, [dragging, handleTimelineMouseMove, handleTimelineMouseUp])
+  }, [dragging, handleDrag, handleDragEnd])
 
   const handleTrim = async () => {
     if (trimming) return
@@ -298,7 +313,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
           {/* Thumbnail timeline */}
           <Box
             ref={timelineRef}
-            onClick={handleTimelineClick}
+            onClick={handleSeek}
             sx={{
               position: 'relative',
               height: thumbnailHeight + 20,
@@ -325,28 +340,8 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             </Box>
 
             {/* Darkened areas outside selection */}
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: `${timeToPercent(startTime)}%`,
-                height: thumbnailHeight,
-                background: 'rgba(0, 0, 0, 0.7)',
-                pointerEvents: 'none',
-              }}
-            />
-            <Box
-              sx={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                width: `${100 - timeToPercent(endTime)}%`,
-                height: thumbnailHeight,
-                background: 'rgba(0, 0, 0, 0.7)',
-                pointerEvents: 'none',
-              }}
-            />
+            <Box sx={{ ...overlayStyle(thumbnailHeight), left: 0, width: `${timeToPercent(startTime)}%` }} />
+            <Box sx={{ ...overlayStyle(thumbnailHeight), right: 0, width: `${100 - timeToPercent(endTime)}%` }} />
 
             {/* Selection border */}
             <Box
@@ -364,38 +359,16 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
 
             {/* Start handle */}
             <Box
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'start')}
-              onTouchStart={(e) => handleTimelineTouchStart(e, 'start')}
-              sx={{
-                position: 'absolute',
-                top: -10,
-                left: `${timeToPercent(startTime)}%`,
-                transform: 'translateX(-50%)',
-                width: { xs: 16, sm: 8 },
-                height: thumbnailHeight + 20,
-                background: '#d8db04',
-                cursor: 'ew-resize',
-                touchAction: 'none',
-                '&:hover': { background: '#e8eb34' },
-              }}
+              onMouseDown={(e) => handleDragStart(e, 'start')}
+              onTouchStart={(e) => handleDragStart(e, 'start')}
+              sx={{ ...handleStyle(thumbnailHeight), left: `${timeToPercent(startTime)}%` }}
             />
 
             {/* End handle */}
             <Box
-              onMouseDown={(e) => handleTimelineMouseDown(e, 'end')}
-              onTouchStart={(e) => handleTimelineTouchStart(e, 'end')}
-              sx={{
-                position: 'absolute',
-                top: -10,
-                left: `${timeToPercent(endTime)}%`,
-                transform: 'translateX(-50%)',
-                width: { xs: 16, sm: 8 },
-                height: thumbnailHeight + 20,
-                background: '#d8db04',
-                cursor: 'ew-resize',
-                touchAction: 'none',
-                '&:hover': { background: '#e8eb34' },
-              }}
+              onMouseDown={(e) => handleDragStart(e, 'end')}
+              onTouchStart={(e) => handleDragStart(e, 'end')}
+              sx={{ ...handleStyle(thumbnailHeight), left: `${timeToPercent(endTime)}%` }}
             />
 
             {/* Current time indicator (playhead) - always visible */}
@@ -425,7 +398,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
           }}>
             <Box sx={{
               display: 'flex',
-              gap: 1,
+              gap: 2,
               width: { xs: '100%', sm: 'auto' },
               flexDirection: { xs: 'column', sm: 'row' },
             }}>
@@ -435,12 +408,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 startIcon={isPlaying ? <PauseIcon /> : <PlayArrowIcon />}
                 onClick={togglePlayback}
                 disabled={trimming}
-                sx={{
-                  width: { xs: '100%', sm: 'auto' },
-                  py: { xs: 0.5 },
-                  minHeight: { xs: 32 },
-                  fontSize: { xs: '0.875rem' },
-                }}
+                sx={responsiveButtonStyle}
               >
                 {isPlaying ? 'Pause' : 'Preview'}
               </Button>
@@ -450,12 +418,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
                 startIcon={<CloseIcon />}
                 onClick={onCancel}
                 disabled={trimming}
-                sx={{
-                  width: { xs: '100%', sm: 'auto' },
-                  py: { xs: 0.5 },
-                  minHeight: { xs: 32 },
-                  fontSize: { xs: '0.875rem' },
-                }}
+                sx={responsiveButtonStyle}
               >
                 Cancel
               </Button>
@@ -491,7 +454,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
             startIcon={trimming ? <CircularProgress size={20} color="inherit" /> : undefined}
             onClick={handleTrim}
             disabled={trimming || trimDuration < 0.5}
-            sx={{ mt: 2 }}
+            sx={{ mt: 2, maxWidth: 400, mx: 'auto', display: 'block' }}
           >
             {trimming ? 'Trimming...' : `Trim to ${toHHMMSS(trimDuration)}`}
           </Button>
