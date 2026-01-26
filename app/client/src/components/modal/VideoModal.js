@@ -32,6 +32,8 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
   const [autoplay, setAutoplay] = useState(false)
   const [selectedGame, setSelectedGame] = React.useState(null)
   const [trimMode, setTrimMode] = useState(false)
+  const [playerKey, setPlayerKey] = useState(0)
+  const [pendingTrimAlert, setPendingTrimAlert] = useState(null)
 
   const playerRef = React.useRef()
 
@@ -64,6 +66,17 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
 
     fetchConfig();
   }, []);
+
+  useEffect(() => {
+    if (!pendingTrimAlert) return
+    if (pendingTrimAlert.waitForKey !== null && pendingTrimAlert.waitForKey !== playerKey) return
+    setAlert({
+      type: 'success',
+      message: pendingTrimAlert.message,
+      open: true,
+    })
+    setPendingTrimAlert(null)
+  }, [pendingTrimAlert, playerKey])
 
   // Reset trim mode when modal closes
   useEffect(() => {
@@ -308,7 +321,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                 }}
               >
                 <VideoJSPlayer
-                  key={vid.video_id}
+                  key={`${vid.video_id}-${playerKey}`}
                   sources={getVideoSources(vid.video_id, vid?.info, vid.extension)}
                   poster={getPosterUrl()}
                   autoplay={autoplay}
@@ -413,11 +426,22 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
                           video={vid}
                           playerRef={playerRef}
                           onTrimComplete={(updatedVideo, isNew) => {
+                            const successMessage = isNew
+                              ? 'New trimmed clip created!'
+                              : 'Video trimmed successfully!'
                             setTrimMode(false)
                             if (isNew) {
+                              setAlert({
+                                type: 'success',
+                                message: successMessage,
+                                open: true,
+                              })
                               updateCallback && updateCallback({ id: vid.video_id, refresh: true })
                             } else {
                               setVideo(updatedVideo)
+                              const nextPlayerKey = playerKey + 1
+                              setPlayerKey(nextPlayerKey)
+                              setPendingTrimAlert({ message: successMessage, waitForKey: nextPlayerKey })
                               updateCallback && updateCallback({ id: vid.video_id, refresh: true })
                             }
                           }}

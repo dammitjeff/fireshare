@@ -221,15 +221,7 @@ const TrimControls = ({ video, playerRef, onTrimComplete, onCancel, onAlert }) =
     setTrimming(true)
     try {
       const result = await VideoService.trimVideo(video.video_id, startTime, endTime, saveAsNew)
-      onAlert?.({
-        type: 'success',
-        message: saveAsNew ? 'New trimmed clip created!' : 'Video trimmed successfully!',
-        open: true,
-      })
-
-      setTimeout(() => {
-        onTrimComplete?.(result.data, saveAsNew)
-      }, 1500)
+      onTrimComplete?.(result.data, saveAsNew)
     } catch (err) {
       console.error('Trim error:', err)
       onAlert?.({

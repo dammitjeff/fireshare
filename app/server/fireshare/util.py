@@ -751,8 +751,12 @@ def trim_video(video_path, out_path, start_time, end_time, use_gpu=False, timeou
 
     # Get video duration to validate end time
     duration = get_video_duration(video_path)
-    if duration is not None and end_time > duration:
+    tolerance = 0.5
+    if duration is not None and end_time > duration + tolerance:
         return (False, f"End time ({end_time}s) exceeds video duration ({duration}s)")
+
+    if duration is not None and end_time > duration:
+        end_time = duration
 
     # Validate source file
     is_valid, error_msg = validate_video_file(video_path)
