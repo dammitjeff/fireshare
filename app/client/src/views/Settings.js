@@ -3,9 +3,13 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   Divider,
+  FormControl,
   FormControlLabel,
   Grid,
+  InputLabel,
+  NativeSelect,
   Stack,
   TextField,
   ToggleButton,
@@ -19,6 +23,8 @@ import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import PlayArrowIcon from '@mui/icons-material/PlayArrow'
+import StopIcon from '@mui/icons-material/Stop'
 import { ConfigService, VideoService } from '../services'
 import LightTooltip from '../components/misc/LightTooltip'
 
@@ -37,23 +43,40 @@ const Settings = ({ authenticated }) => {
   const [updateable, setUpdateable] = React.useState(false)
   const [discordUrl, setDiscordUrl] = React.useState('')
   const [showSteamGridKey, setShowSteamGridKey] = React.useState(false)
+  const [transcodingStatus, setTranscodingStatus] = React.useState({
+    enabled: false,
+    gpu_enabled: false,
+    is_running: false,
+  })
   const isDiscordUsed = discordUrl.trim() !== ''
+
+  const fetchRunningStatus = async () => {
+    try {
+      const status = (await ConfigService.getTranscodingStatus()).data
+      setTranscodingStatus((prev) => ({ ...prev, is_running: status.is_running }))
+    } catch (err) {
+      console.error('Failed to fetch transcoding status:', err)
+    }
+  }
 
   React.useEffect(() => {
     async function fetch() {
       try {
-        const res = await ConfigService.getAdminConfig()
-        const conf = _.cloneDeep(res.data)
-
-        // Ensure rss_config exists and has default values for comparison
-        if (!conf.rss_config) {
-          conf.rss_config = { title: '', description: '' }
+        const conf = (await ConfigService.getAdminConfig()).data
+        setConfig(conf)
+        setUpdatedConfig(conf)
+        // Set transcoding enabled/gpu from config (only changes on container restart)
+        if (conf.transcoding_status) {
+          setTranscodingStatus((prev) => ({
+            ...prev,
+            enabled: conf.transcoding_status.enabled,
+            gpu_enabled: conf.transcoding_status.gpu_enabled,
+          }))
+          // Only check is_running if transcoding is enabled
+          if (conf.transcoding_status.enabled) {
+            await fetchRunningStatus()
+          }
         }
-        if (!conf.rss_config.title) conf.rss_config.title = ''
-        if (!conf.rss_config.description) conf.rss_config.description = ''
-
-        setConfig(_.cloneDeep(conf))
-        setUpdatedConfig(_.cloneDeep(conf))
         await checkForWarnings()
       } catch (err) {
         console.error(err)
@@ -67,6 +90,17 @@ const Settings = ({ authenticated }) => {
       setUpdateable(!_.isEqual(config, updatedConfig))
     }
   }, [updatedConfig, config])
+
+  // Poll for is_running status while transcoding is active
+  React.useEffect(() => {
+    if (!transcodingStatus.enabled || !transcodingStatus.is_running) return
+
+    const interval = setInterval(() => {
+      fetchRunningStatus()
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [transcodingStatus.enabled, transcodingStatus.is_running])
 
   React.useEffect(() => {
     if (updatedConfig.integrations?.discord_webhook_url) {
@@ -489,6 +523,123 @@ const Settings = ({ authenticated }) => {
                     ),
                   }}
                 />
+                <Divider />
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 18 }}>
+                    Transcoding
+                  </Typography>
+                </Box>
+                {!transcodingStatus.enabled ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    Transcoding is disabled. Set ENABLE_TRANSCODING=true in your container to enable.
+                  </Typography>
+                ) : (
+                  <>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 1 }}>
+                      <Chip
+                        label="Transcoding Enabled"
+                        color="success"
+                        size="small"
+                      />
+                      {transcodingStatus.gpu_enabled && (
+                        <Chip label="GPU Enabled" color="info" size="small" />
+                      )}
+                      {transcodingStatus.is_running && (
+                        <Chip label="Running" color="warning" size="small" />
+                      )}
+                    </Box>
+                    <FormControl fullWidth size="small">
+                      <InputLabel variant="standard" htmlFor="encoder-preference">
+                        Encoder Preference
+                      </InputLabel>
+                      <NativeSelect
+                        value={updatedConfig.transcoding?.encoder_preference || 'auto'}
+                        inputProps={{ id: 'encoder-preference' }}
+                        onChange={(e) =>
+                          setUpdatedConfig((prev) => ({
+                            ...prev,
+                            transcoding: { ...prev.transcoding, encoder_preference: e.target.value },
+                          }))
+                        }
+                      >
+                        <option value="auto">Auto (H.264 first, then AV1)</option>
+                        <option value="h264">H.264 Only (Faster)</option>
+                        <option value="av1">AV1 Only (Smaller files, slower)</option>
+                      </NativeSelect>
+                    </FormControl>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2">Resolutions:</Typography>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={updatedConfig.transcoding?.enable_720p !== false}
+                            onChange={(e) =>
+                              setUpdatedConfig((prev) => ({
+                                ...prev,
+                                transcoding: { ...prev.transcoding, enable_720p: e.target.checked },
+                              }))
+                            }
+                          />
+                        }
+                        label="720p"
+                      />
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={updatedConfig.transcoding?.enable_1080p !== false}
+                            onChange={(e) =>
+                              setUpdatedConfig((prev) => ({
+                                ...prev,
+                                transcoding: { ...prev.transcoding, enable_1080p: e.target.checked },
+                              }))
+                            }
+                          />
+                        }
+                        label="1080p"
+                      />
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      {!transcodingStatus.is_running ? (
+                        <Button
+                          variant="contained"
+                          startIcon={<PlayArrowIcon />}
+                          onClick={async () => {
+                            try {
+                              await ConfigService.startTranscoding()
+                              setAlert({ open: true, message: 'Transcoding started', type: 'success' })
+                              fetchRunningStatus()
+                            } catch (err) {
+                              setAlert({ open: true, message: err.response?.data || 'Failed to start', type: 'error' })
+                            }
+                          }}
+                          fullWidth
+                        >
+                          Transcode All Videos
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          color="error"
+                          startIcon={<StopIcon />}
+                          onClick={async () => {
+                            try {
+                              await ConfigService.cancelTranscoding()
+                              setAlert({ open: true, message: 'Transcoding cancelled', type: 'info' })
+                              fetchRunningStatus()
+                            } catch (err) {
+                              setAlert({ open: true, message: err.response?.data || 'Failed to cancel', type: 'error' })
+                            }
+                          }}
+                          fullWidth
+                        >
+                          Cancel Transcoding
+                        </Button>
+                      )}
+                    </Box>
+                  </>
+                )}
                 <Divider />
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 18 }}>

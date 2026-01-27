@@ -410,72 +410,67 @@ def transcode_video(video_path, out_path):
     e = time.time()
     logger.info(f'Transcoded {str(out_path)} in {e-s}s')
 
-def _get_encoder_candidates(use_gpu=False):
+def _get_encoder_candidates(use_gpu=False, encoder_preference='auto'):
     """
     Get the list of encoder configurations to try in priority order.
-    
+
     Args:
         use_gpu: Whether to include GPU encoders in the list
-    
+        encoder_preference: 'auto', 'h264', or 'av1'
+
     Returns:
         list: List of encoder configurations to try in order
     """
-    # CPU encoder configurations (shared between GPU and CPU modes)
-    cpu_encoders = [
-        {
-            'name': 'AV1 CPU',
-            'video_codec': 'libaom-av1',
-            'audio_codec': 'libopus',
-            'audio_bitrate': '96k',
-            'extra_args': ['-cpu-used', '4', '-crf', '30', '-b:v', '0']
-        },
-        {
-            'name': 'H.264 CPU',
-            'video_codec': 'libx264',
-            'audio_codec': 'aac',
-            'audio_bitrate': '128k',
-            'extra_args': ['-preset', 'medium', '-crf', '23']
-        }
-    ]
-    
-    # Define encoder configurations to try in order
-    if use_gpu:
-        # GPU mode: try GPU encoders first, then fall back to CPU encoders
-        gpu_encoders = [
-            {
-                'name': 'AV1 NVENC',
-                'video_codec': 'av1_nvenc',
-                'audio_codec': 'libopus',
-                'audio_bitrate': '96k',
-                'extra_args': ['-preset', 'p4', '-cq:v', '30']
-            },
-            {
-                'name': 'H.264 NVENC',
-                'video_codec': 'h264_nvenc',
-                'audio_codec': 'aac',
-                'audio_bitrate': '128k',
-                'extra_args': ['-preset', 'p4', '-cq:v', '23']
-            }
-        ]
-        return gpu_encoders + cpu_encoders
-    else:
-        # CPU mode: only try CPU encoders
-        return cpu_encoders
+    h264_cpu = {
+        'name': 'H.264 CPU',
+        'video_codec': 'libx264',
+        'audio_codec': 'aac',
+        'audio_bitrate': '128k',
+        'extra_args': ['-preset', 'fast', '-crf', '23']
+    }
+    av1_cpu = {
+        'name': 'AV1 CPU',
+        'video_codec': 'libaom-av1',
+        'audio_codec': 'libopus',
+        'audio_bitrate': '96k',
+        'extra_args': ['-cpu-used', '4', '-crf', '30', '-b:v', '0']
+    }
+    h264_nvenc = {
+        'name': 'H.264 NVENC',
+        'video_codec': 'h264_nvenc',
+        'audio_codec': 'aac',
+        'audio_bitrate': '128k',
+        'extra_args': ['-preset', 'p4', '-cq:v', '23']
+    }
+    av1_nvenc = {
+        'name': 'AV1 NVENC',
+        'video_codec': 'av1_nvenc',
+        'audio_codec': 'libopus',
+        'audio_bitrate': '96k',
+        'extra_args': ['-preset', 'p4', '-cq:v', '30']
+    }
+
+    if encoder_preference == 'h264':
+        if use_gpu:
+            return [h264_nvenc, h264_cpu]
+        return [h264_cpu]
+    elif encoder_preference == 'av1':
+        if use_gpu:
+            return [av1_nvenc, av1_cpu]
+        return [av1_cpu]
+    else:  # auto - H.264 first (faster), AV1 as fallback
+        if use_gpu:
+            return [h264_nvenc, av1_nvenc, h264_cpu, av1_cpu]
+        return [h264_cpu, av1_cpu]
+
+def run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds=None):
+    """Run an FFmpeg command with timeout support."""
+    return sp.run(cmd, timeout=timeout_seconds)
+
 
 def _build_transcode_command(video_path, out_path, height, encoder):
-    """
-    Build an ffmpeg command for transcoding with the given encoder.
-    
-    Args:
-        video_path: Path to the source video
-        out_path: Path for the transcoded output
-        height: Target height in pixels
-        encoder: Encoder configuration dict
-    
-    Returns:
-        list: ffmpeg command as a list of arguments
-    """
-    cmd = ['ffmpeg', '-v', 'error', '-y', '-i', str(video_path)]
+    """Build an ffmpeg command for transcoding with the given encoder."""
+    cmd = ['ffmpeg', '-v', 'warning', '-stats', '-y', '-i', str(video_path)]
     cmd.extend(['-c:v', encoder['video_codec']])
     
     if 'extra_args' in encoder:
@@ -487,7 +482,7 @@ def _build_transcode_command(video_path, out_path, height, encoder):
     
     return cmd
 
-def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout_seconds=None):
+def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout_seconds=None, encoder_preference='auto'):
     """
     Transcode a video to a specific height (e.g., 720, 1080) while maintaining aspect ratio.
     
@@ -523,11 +518,14 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
         logger.error(f"Source video validation failed: {error_msg}")
         logger.warning("Skipping transcoding for this video due to file corruption or read errors")
         return (False, 'corruption')
-    
+
+    # Get video duration for progress logging
+    total_duration = get_video_duration(video_path) or 0
+
     # Calculate smart timeout based on video duration if not provided
     if timeout_seconds is None:
         timeout_seconds = calculate_transcode_timeout(video_path)
-    
+
     logger.info(f"Using transcode timeout of {timeout_seconds}s ({timeout_seconds/60:.1f} minutes)")
     
     # Determine output container based on codec
@@ -539,15 +537,15 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     if _working_encoder_cache[mode] is not None:
         encoder = _working_encoder_cache[mode]
         logger.debug(f"Using cached {mode.upper()} encoder: {encoder['name']}")
-        
+
         # Build ffmpeg command using the cached encoder
         logger.info(f"Transcoding video to {height}p using {encoder['name']}")
         cmd = _build_transcode_command(video_path, out_path, height, encoder)
-        
+
         logger.debug(f"$: {' '.join(cmd)}")
-        
+
         try:
-            result = sp.run(cmd, timeout=timeout_seconds)
+            result = run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds)
             if result.returncode == 0:
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
@@ -662,19 +660,19 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     # When use_gpu=True, the candidate list includes GPU encoders first, then CPU encoders
     # as fallback, so CPU transcoding will be attempted automatically if GPU fails
     logger.info(f"Detecting working {mode.upper()} encoder by attempting transcode...")
-    encoders = _get_encoder_candidates(use_gpu)
+    encoders = _get_encoder_candidates(use_gpu, encoder_preference)
     
     last_exception = None
     for encoder in encoders:
         logger.info(f"Trying {encoder['name']}...")
-        
+
         # Build ffmpeg command
         cmd = _build_transcode_command(video_path, out_path, height, encoder)
-        
+
         logger.debug(f"$: {' '.join(cmd)}")
-        
+
         try:
-            result = sp.run(cmd, timeout=timeout_seconds)
+            result = run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds)
             if result.returncode == 0:
                 # Success! Cache this encoder and return
                 logger.info(f"✓ {encoder['name']} works! Using it for all transcodes this session.")

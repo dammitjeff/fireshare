@@ -4,6 +4,7 @@ import shutil
 import random
 import logging
 import threading
+import subprocess
 from subprocess import Popen
 from textwrap import indent
 from flask import Blueprint, render_template, request, Response, jsonify, current_app, send_file, redirect
@@ -246,6 +247,11 @@ def get_or_update_config():
         config = json.load(file)
         file.close()
         if config_path.exists():
+            # Include transcoding status (from env vars, doesn't change at runtime)
+            config['transcoding_status'] = {
+                'enabled': current_app.config.get('ENABLE_TRANSCODING', False),
+                'gpu_enabled': current_app.config.get('TRANSCODE_GPU', False),
+            }
             return config
         else:
             return jsonify({})
@@ -276,6 +282,83 @@ def get_warnings():
             return jsonify({})
         else:
             return jsonify(warnings)
+
+
+# Global variable to track transcoding process
+_transcoding_process = None
+
+
+@api.route('/api/admin/transcoding/status', methods=["GET"])
+@login_required
+def get_transcoding_status():
+    """Get transcoding status and capabilities."""
+    global _transcoding_process
+
+    enabled = current_app.config.get('ENABLE_TRANSCODING', False)
+    gpu_enabled = current_app.config.get('TRANSCODE_GPU', False)
+
+    # Check if transcoding is currently running
+    is_running = _transcoding_process is not None and _transcoding_process.poll() is None
+
+    return jsonify({
+        "enabled": enabled,
+        "gpu_enabled": gpu_enabled,
+        "is_running": is_running
+    })
+
+
+@api.route('/api/admin/transcoding/start', methods=["POST"])
+@login_required
+def start_transcoding():
+    """Start bulk transcoding of all videos."""
+    global _transcoding_process
+
+    if not current_app.config.get('ENABLE_TRANSCODING', False):
+        return Response(status=400, response='Transcoding is not enabled')
+
+    # Check if already running
+    if _transcoding_process is not None and _transcoding_process.poll() is None:
+        return Response(status=400, response='Transcoding is already in progress')
+
+    # Start transcoding in background - output goes to server terminal
+    # Use start_new_session so we can kill the entire process group (including ffmpeg)
+    try:
+        _transcoding_process = subprocess.Popen(
+            ['fireshare', 'transcode-videos'],
+            env=os.environ.copy(),
+            start_new_session=True
+        )
+        return jsonify({"status": "started", "pid": _transcoding_process.pid})
+    except Exception as e:
+        return Response(status=500, response=f'Failed to start transcoding: {str(e)}')
+
+
+@api.route('/api/admin/transcoding/cancel', methods=["POST"])
+@login_required
+def cancel_transcoding():
+    """Cancel ongoing transcoding."""
+    global _transcoding_process
+
+    if _transcoding_process is None:
+        return Response(status=400, response='No transcoding in progress')
+
+    if _transcoding_process.poll() is not None:
+        _transcoding_process = None
+        return Response(status=400, response='Transcoding already finished')
+
+    try:
+        # Kill the entire process group (including ffmpeg child processes)
+        import signal
+        os.killpg(os.getpgid(_transcoding_process.pid), signal.SIGTERM)
+        _transcoding_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(_transcoding_process.pid), signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Process already dead
+
+    _transcoding_process = None
+    return jsonify({"status": "cancelled"})
+
 
 @api.route('/api/admin/reset-database', methods=["POST"])
 @login_required
