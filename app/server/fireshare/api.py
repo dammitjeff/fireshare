@@ -700,7 +700,26 @@ def handle_video_details(id):
             return Response(response='You do not have access to this resource.', status=401)
         video_info = VideoInfo.query.filter_by(video_id=id).first()
         if video_info:
-            db.session.query(VideoInfo).filter_by(video_id=id).update(request.json)
+            # Handle recorded_at separately since it's on Video model, not VideoInfo
+            data = request.json.copy()
+            recorded_at = data.pop('recorded_at', None)
+
+            # Update VideoInfo fields
+            if data:
+                db.session.query(VideoInfo).filter_by(video_id=id).update(data)
+
+            # Update Video.recorded_at if provided
+            if recorded_at is not None:
+                video = Video.query.filter_by(video_id=id).first()
+                if video:
+                    if recorded_at == '' or recorded_at is None:
+                        video.recorded_at = None
+                    else:
+                        try:
+                            video.recorded_at = datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+                        except (ValueError, AttributeError):
+                            video.recorded_at = None
+
             db.session.commit()
             return Response(status=201)
         else:
