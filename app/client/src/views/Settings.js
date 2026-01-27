@@ -615,6 +615,21 @@ const Settings = ({ authenticated }) => {
                         label="480p"
                       />
                     </Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={updatedConfig.transcoding?.auto_transcode !== false}
+                          onChange={(e) =>
+                            setUpdatedConfig((prev) => ({
+                              ...prev,
+                              transcoding: { ...prev.transcoding, auto_transcode: e.target.checked },
+                            }))
+                          }
+                        />
+                      }
+                      label="Automatically transcode new uploads"
+                    />
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       {!transcodingStatus.is_running ? (
                         <Button

@@ -711,11 +711,22 @@ def bulk_import(ctx, root):
         ctx.invoke(create_posters, skip=thumbnail_skip)
         timing['create_posters'] = time.time() - s
         
-        # Transcode videos if transcoding is enabled
+        # Transcode videos if transcoding is enabled and auto_transcode is on
         if current_app.config.get('ENABLE_TRANSCODING'):
-            s = time.time()
-            ctx.invoke(transcode_videos)
-            timing['transcode_videos'] = time.time() - s
+            # Check if auto_transcode is enabled in config.json
+            config_path = paths['data'] / 'config.json'
+            auto_transcode = True  # Default to True
+            if config_path.exists():
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    auto_transcode = config.get('transcoding', {}).get('auto_transcode', True)
+
+            if auto_transcode:
+                s = time.time()
+                ctx.invoke(transcode_videos)
+                timing['transcode_videos'] = time.time() - s
+            else:
+                logger.info("Skipping automatic transcoding (auto_transcode is disabled in settings)")
 
         logger.info(f"Finished bulk import. Timing info: {json.dumps(timing)}")
 
