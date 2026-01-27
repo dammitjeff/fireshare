@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
   },
   "transcoding": {
     "encoder_preference": "auto",
+    "enable_480p": True,
     "enable_720p": True,
     "enable_1080p": True,
   }

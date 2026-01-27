@@ -581,7 +581,7 @@ def create_boomerang_posters(regenerate):
 @click.option("--video", "-v", help="Transcode a specific video by id", default=None)
 @click.option("--include-corrupt", help="Include videos previously marked as corrupt", is_flag=True)
 def transcode_videos(regenerate, video, include_corrupt):
-    """Transcode videos to 1080p and 720p variants"""
+    """Transcode videos to enabled resolution variants (1080p, 720p, 480p)"""
 
     def handle_cancel(signum, frame):
         logger.info("Transcoding cancelled by user")
@@ -608,9 +608,16 @@ def transcode_videos(regenerate, video, include_corrupt):
                 transcoding_config = config.get('transcoding', {})
 
         encoder_preference = transcoding_config.get('encoder_preference', 'auto')
-        enable_720p = transcoding_config.get('enable_720p', True)
-        enable_1080p = transcoding_config.get('enable_1080p', True)
-        
+
+        # Build list of enabled resolutions (highest to lowest)
+        resolutions = []
+        if transcoding_config.get('enable_1080p', True):
+            resolutions.append(1080)
+        if transcoding_config.get('enable_720p', True):
+            resolutions.append(720)
+        if transcoding_config.get('enable_480p', True):
+            resolutions.append(480)
+
         # Get videos to transcode
         vinfos = VideoInfo.query.filter(VideoInfo.video_id==video).all() if video else VideoInfo.query.all()
         
@@ -637,67 +644,43 @@ def transcode_videos(regenerate, video, include_corrupt):
             if not derived_path.exists():
                 derived_path.mkdir(parents=True)
             
-            # Determine which qualities to transcode
+            # Transcode to each enabled resolution
             original_height = vi.height or 0
             video_is_corrupt = False
-            
-            # Transcode to 1080p if enabled and original is higher
-            transcode_1080p_path = derived_path / f"{vi.video_id}-1080p.mp4"
-            if enable_1080p and original_height > 1080 and (not transcode_1080p_path.exists() or regenerate):
-                logger.info(f"[{idx}/{total_videos}] Transcoding {vi.video_id} to 1080p ({vi.video.path})")
-                timeout = None
-                success, failure_reason = util.transcode_video_quality(
-                    video_path, transcode_1080p_path, 1080, use_gpu, timeout, encoder_preference
-                )
-                if success:
-                    vi.has_1080p = True
-                    # Clear corrupt status if transcode succeeds (file may have been replaced)
-                    if is_video_corrupt(vi.video_id):
-                        clear_video_corrupt(vi.video_id)
+
+            for height in resolutions:
+                if video_is_corrupt:
+                    break
+
+                if original_height <= height:
+                    continue
+
+                transcode_path = derived_path / f"{vi.video_id}-{height}p.mp4"
+                has_attr = f'has_{height}p'
+
+                if not transcode_path.exists() or regenerate:
+                    logger.info(f"[{idx}/{total_videos}] Transcoding {vi.video_id} to {height}p ({vi.video.path})")
+                    success, failure_reason = util.transcode_video_quality(
+                        video_path, transcode_path, height, use_gpu, None, encoder_preference
+                    )
+                    if success:
+                        setattr(vi, has_attr, True)
+                        if is_video_corrupt(vi.video_id):
+                            clear_video_corrupt(vi.video_id)
+                        db.session.add(vi)
+                        db.session.commit()
+                    elif failure_reason == 'corruption':
+                        logger.warning(f"Skipping video {vi.video_id} {height}p transcode - source file appears corrupt")
+                        mark_video_corrupt(vi.video_id)
+                        video_is_corrupt = True
+                    else:
+                        logger.warning(f"Skipping video {vi.video_id} {height}p transcode - all encoders failed")
+                elif transcode_path.exists():
+                    logger.debug(f"Skipping {height}p transcode for {vi.video_id} (already exists)")
+                    setattr(vi, has_attr, True)
                     db.session.add(vi)
                     db.session.commit()
-                elif failure_reason == 'corruption':
-                    logger.warning(f"Skipping video {vi.video_id} 1080p transcode - source file appears corrupt")
-                    mark_video_corrupt(vi.video_id)
-                    video_is_corrupt = True
-                else:
-                    logger.warning(f"Skipping video {vi.video_id} 1080p transcode - all encoders failed")
-            elif transcode_1080p_path.exists():
-                logger.debug(f"Skipping 1080p transcode for {vi.video_id} (already exists)")
-                vi.has_1080p = True
-                db.session.add(vi)
-                db.session.commit()
-            
-            # Skip 720p transcode if video was marked as corrupt
-            if video_is_corrupt:
-                continue
-            
-            # Transcode to 720p if enabled and original is higher
-            transcode_720p_path = derived_path / f"{vi.video_id}-720p.mp4"
-            if enable_720p and original_height > 720 and (not transcode_720p_path.exists() or regenerate):
-                logger.info(f"[{idx}/{total_videos}] Transcoding {vi.video_id} to 720p ({vi.video.path})")
-                timeout = None
-                success, failure_reason = util.transcode_video_quality(
-                    video_path, transcode_720p_path, 720, use_gpu, timeout, encoder_preference
-                )
-                if success:
-                    vi.has_720p = True
-                    # Clear corrupt status if transcode succeeds (file may have been replaced)
-                    if is_video_corrupt(vi.video_id):
-                        clear_video_corrupt(vi.video_id)
-                    db.session.add(vi)
-                    db.session.commit()
-                elif failure_reason == 'corruption':
-                    logger.warning(f"Skipping video {vi.video_id} 720p transcode - source file appears corrupt")
-                    mark_video_corrupt(vi.video_id)
-                else:
-                    logger.warning(f"Skipping video {vi.video_id} 720p transcode - all encoders failed")
-            elif transcode_720p_path.exists():
-                logger.debug(f"Skipping 720p transcode for {vi.video_id} (already exists)")
-                vi.has_720p = True
-                db.session.add(vi)
-                db.session.commit()
-        
+
         logger.info("Transcoding complete")
 
 @cli.command()

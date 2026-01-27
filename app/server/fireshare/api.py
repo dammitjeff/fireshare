@@ -90,8 +90,8 @@ def get_video_path(id, subid=None, quality=None):
         raise Exception(f"No video found for {id}")
     paths = current_app.config['PATHS']
     
-    # Handle quality variants (720p, 1080p)
-    if quality and quality in ['720p', '1080p']:
+    # Handle quality variants (480p, 720p, 1080p)
+    if quality and quality in ['480p', '720p', '1080p']:
         # Check if the transcoded version exists
         derived_path = paths["processed"] / "derived" / id / f"{id}-{quality}.mp4"
         if derived_path.exists():

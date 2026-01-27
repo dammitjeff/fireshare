@@ -573,6 +573,21 @@ const Settings = ({ authenticated }) => {
                         control={
                           <Checkbox
                             size="small"
+                            checked={updatedConfig.transcoding?.enable_1080p !== false}
+                            onChange={(e) =>
+                              setUpdatedConfig((prev) => ({
+                                ...prev,
+                                transcoding: { ...prev.transcoding, enable_1080p: e.target.checked },
+                              }))
+                            }
+                          />
+                        }
+                        label="1080p"
+                      />
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            size="small"
                             checked={updatedConfig.transcoding?.enable_720p !== false}
                             onChange={(e) =>
                               setUpdatedConfig((prev) => ({
@@ -588,16 +603,16 @@ const Settings = ({ authenticated }) => {
                         control={
                           <Checkbox
                             size="small"
-                            checked={updatedConfig.transcoding?.enable_1080p !== false}
+                            checked={updatedConfig.transcoding?.enable_480p !== false}
                             onChange={(e) =>
                               setUpdatedConfig((prev) => ({
                                 ...prev,
-                                transcoding: { ...prev.transcoding, enable_1080p: e.target.checked },
+                                transcoding: { ...prev.transcoding, enable_480p: e.target.checked },
                               }))
                             }
                           />
                         }
-                        label="1080p"
+                        label="480p"
                       />
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1 }}>
