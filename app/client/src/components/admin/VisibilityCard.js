@@ -31,24 +31,23 @@ const VisibilityCard = ({
         ml: 0.75,
         mr: 0.75,
         mb: 3,
-        mt: reserveDateSpace ? 3 : 0,
         position: 'relative',
       }}
       ref={nodeRef}
     >
-      {dateLabel && (
+      {reserveDateSpace && (
         <Box
           sx={{
-            position: 'absolute',
-            top: -28,
-            left: 0,
             color: '#ffffff',
-            fontSize: 14,
-            fontWeight: 600,
+            fontSize: 16,
+            fontWeight: 700,
+            letterSpacing: -1,
             opacity: 0.8,
+            mb: 1,
+            height: 20,
           }}
         >
-          {dateLabel}
+          {dateLabel || ''}
         </Box>
       )}
       {isVisible ? (

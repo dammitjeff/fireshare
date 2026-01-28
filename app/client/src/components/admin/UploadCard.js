@@ -159,7 +159,10 @@ const UploadCard = ({ authenticated, feedView = false, publicUpload = false, fet
   if (!feedView && !uiConfig?.show_admin_upload) return null
 
   return (
-    <Grid item sx={{ ml: 0.75, mr: 0.75, mb: 1.5, mt: reserveDateSpace ? 3 : 0 }}>
+    <Grid item sx={{ ml: 0.75, mr: 0.75, mb: 3 }}>
+      {reserveDateSpace && (
+        <Box sx={{ height: 20, mb: 1 }} />
+      )}
       <label htmlFor="icon-button-file">
         {/* Add onDrop and onDragOver handlers */}
         <Paper
