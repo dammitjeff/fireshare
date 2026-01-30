@@ -20,7 +20,7 @@ import LinkIcon from '@mui/icons-material/Link'
 import VideoCards from '../components/admin/VideoCards'
 import VideoList from '../components/admin/VideoList'
 import GameSearch from '../components/game/GameSearch'
-import { VideoService, GameService } from '../services'
+import { VideoService, GameService, ReleaseService } from '../services'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
 import { getSetting, setSetting } from '../common/utils'
 import Select from 'react-select'
@@ -34,7 +34,7 @@ const createSelectFolders = (folders) => {
   return folders.map((f) => ({ value: f, label: f }))
 }
 
-const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
+const Dashboard = ({ authenticated, searchText, cardSize, listStyle, showReleaseNotes, releaseNotes: releaseNotesProp }) => {
   const [videos, setVideos] = React.useState([])
   const [search, setSearch] = React.useState(searchText)
   const [filteredVideos, setFilteredVideos] = React.useState([])
@@ -58,7 +58,8 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
   const [games, setGames] = React.useState([])
   const [selectedGame, setSelectedGame] = React.useState(null)
   const [showAddNewGame, setShowAddNewGame] = React.useState(false)
-  const [featureAlertOpen, setFeatureAlertOpen] = React.useState(false)
+  const [featureAlertOpen, setFeatureAlertOpen] = React.useState(showReleaseNotes)
+  const releaseNotes = releaseNotesProp
 
   if (searchText !== search) {
     setSearch(searchText)
@@ -103,15 +104,13 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
 
   React.useEffect(() => {
     fetchVideos()
-    // Check if user has seen the date sorting feature announcement
-    if (!localStorage.getItem('seen_date_sorting_v1')) {
-      setFeatureAlertOpen(true)
-    }
     // eslint-disable-next-line
   }, [])
 
   const handleFeatureAlertClose = () => {
-    localStorage.setItem('seen_date_sorting_v1', 'true')
+    if (releaseNotes?.version && authenticated) {
+      ReleaseService.setLastSeenVersion(releaseNotes.version).catch(() => {})
+    }
     setFeatureAlertOpen(false)
   }
 
@@ -489,22 +488,56 @@ const Dashboard = ({ authenticated, searchText, cardSize, listStyle }) => {
         </DialogActions>
       </Dialog>
 
-      {/* New Feature Announcement Dialog */}
-      <Dialog open={featureAlertOpen} onClose={handleFeatureAlertClose} maxWidth="xs">
+      {/* Release Notes Dialog */}
+      <Dialog open={featureAlertOpen} onClose={handleFeatureAlertClose} maxWidth="sm">
         <DialogTitle>
-          Update 1.5.0
+          {releaseNotes?.name || `Update ${releaseNotes?.version}`}
         </DialogTitle>
         <DialogContent>
-          <Typography sx={{ mb: 2 }}>
-            You can now sort and group your clips by date!
-          </Typography>
-          <Typography variant="body2" color="text.secondary" component="div">
-            • Head over to the settings tab to run a scan on your clips for dates! Clips are automatically grouped by date once scanned.
-            <br /><br />
-            • If we get a date wrong, you can manually correct it in the video details.
-            <br /><br />
-            • If you prefer to hide dates entirely, you can disable them in the UI settings.
-          </Typography>
+          <Box
+            sx={{
+              '& p': { my: 1 },
+              '& strong': { fontWeight: 600 },
+              '& a': { color: 'primary.main' },
+              '& ul, & ol': { pl: 2, my: 1 },
+              '& li': { mb: 0.5 },
+            }}
+            dangerouslySetInnerHTML={{
+              __html: releaseNotes?.body
+                ? releaseNotes.body
+                    // Escape HTML first
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    // Remove @username mentions
+                    .replace(/@[\w-]+/g, '')
+                    // Headers
+                    .replace(/^## (.+)$/gm, '<strong style="font-size: 1.1em;">$1</strong>')
+                    .replace(/^### (.+)$/gm, '<strong>$1</strong>')
+                    // Bold
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    // Links
+                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+                    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+                    // Line breaks
+                    .replace(/\n\n/g, '</p><p>')
+                    .replace(/\n/g, '<br/>')
+                    // Wrap in paragraph
+                    .replace(/^(.*)$/, '<p>$1</p>')
+                : 'Check out the latest updates!',
+            }}
+          />
+          {releaseNotes?.html_url && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 2 }}>
+              <a
+                href={releaseNotes.html_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'inherit' }}
+              >
+                View full release on GitHub
+              </a>
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleFeatureAlertClose} variant="contained">

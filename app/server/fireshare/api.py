@@ -11,12 +11,12 @@ from flask_login import current_user, login_required
 from flask_cors import CORS
 from sqlalchemy.sql import text
 from pathlib import Path
-import time
+import requests
 from werkzeug.utils import secure_filename
 
 
 from . import db, logger
-from .models import Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
+from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
 
@@ -127,6 +127,114 @@ def config():
         return public_config
     else:
         return jsonify({})
+
+# Cache for local app version and release notes (persists until server restart)
+_local_version_cache = {'version': None}
+_release_cache = {'data': None}
+
+def _get_local_version():
+    """Get the locally installed app version from package.json. Cached until server restart."""
+    if _local_version_cache['version']:
+        return _local_version_cache['version']
+
+    try:
+        # Find package.json relative to this file: app/server/fireshare/api.py -> app/client/package.json
+        api_dir = Path(__file__).parent
+        package_json_path = api_dir.parent.parent / 'client' / 'package.json'
+
+        with open(package_json_path, 'r') as f:
+            package_data = json.load(f)
+            _local_version_cache['version'] = package_data.get('version', '')
+            return _local_version_cache['version']
+    except Exception as e:
+        logger.error(f"Failed to read local version from package.json: {e}")
+        return None
+
+def _fetch_release_notes():
+    """Fetch and cache release notes for the LOCAL version from GitHub. Cached until server restart."""
+    if _release_cache['data']:
+        return _release_cache['data']
+
+    local_version = _get_local_version()
+    if not local_version:
+        return None
+
+    try:
+        response = requests.get(
+            'https://api.github.com/repos/ShaneIsrael/fireshare/releases',
+            headers={'Accept': 'application/vnd.github.v3+json'},
+            timeout=10
+        )
+        response.raise_for_status()
+        releases = response.json()
+
+        if not releases:
+            return None
+
+        # Find the release matching the local version
+        target_release = None
+        for release in releases:
+            release_version = release.get('tag_name', '').lstrip('v')
+            if release_version == local_version:
+                target_release = release
+                break
+
+        # Fall back to latest if local version not found on GitHub
+        if not target_release:
+            logger.warning(f"Local version {local_version} not found on GitHub, using latest release")
+            target_release = releases[0]
+
+        _release_cache['data'] = {
+            'version': target_release.get('tag_name', '').lstrip('v'),
+            'name': target_release.get('name', ''),
+            'body': target_release.get('body', ''),
+            'published_at': target_release.get('published_at', ''),
+            'html_url': target_release.get('html_url', '')
+        }
+        return _release_cache['data']
+
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch GitHub releases: {e}")
+        return None
+
+@api.route('/api/release-notes')
+def get_release_notes():
+    """
+    Fetch latest release notes from GitHub, with 24-hour caching.
+    Also returns whether the current user should see the dialog.
+    """
+    release_data = _fetch_release_notes()
+
+    if not release_data:
+        return jsonify({'error': 'No releases found'}), 404
+
+    # Check if user should see the dialog (server-side decision)
+    show_dialog = False
+    if current_user.is_authenticated:
+        show_dialog = current_user.last_seen_version != release_data['version']
+
+    return jsonify({
+        **release_data,
+        'show_dialog': show_dialog
+    })
+
+@api.route('/api/user/last-seen-version', methods=["PUT"])
+@login_required
+def user_last_seen_version():
+    """
+    Update the last seen version for the current user.
+    Called when user dismisses the release notes dialog.
+    """
+    data = request.get_json()
+    version = data.get('version') if data else None
+    if not version:
+        return Response(status=400, response='Version is required.')
+
+    old_version = current_user.last_seen_version
+    current_user.last_seen_version = version
+    db.session.commit()
+    logger.info(f"User '{current_user.username}' last_seen_version updated: {old_version} -> {version}")
+    return jsonify({'last_seen_version': version})
 
 @api.route('/api/admin/config', methods=["GET", "PUT"])
 @login_required
