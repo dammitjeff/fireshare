@@ -134,12 +134,15 @@ const AppBar = styled(MuiAppBar, {
 
 function Navbar20({
   authenticated,
+  showReleaseNotes,
+  releaseNotes,
   page,
   collapsed = false,
   searchable = false,
   styleToggle = false,
   cardSlider = false,
   toolbar = true,
+  mainPadding = 3,
   children,
 }) {
 
@@ -641,7 +644,7 @@ function Navbar20({
           >
             <IconButton onClick={handleDrawerCollapse}>{open ? <ChevronLeftIcon /> : <ChevronRightIcon />}</IconButton>
           </DrawerControl>
-          <Toolbar sx={{ backgroundColor: 'rgba(0,0,0,0)' }}>
+          <Toolbar sx={{ backgroundColor: 'rgba(0,0,0,0)', gap: 2 }}>
             <IconButton
               color="inherit"
               aria-label="open drawer"
@@ -655,9 +658,10 @@ function Navbar20({
               <Search
                 placeholder={`Search videos...`}
                 searchHandler={(value) => setSearchText(value)}
-                sx={{ width: '100%', ml: { xs: 0, sm: 2 } }}
+                sx={{ flexGrow: 1, minWidth: 0, ml: { xs: 0, sm: 2 } }}
               />
             )}
+            <Box id="navbar-toolbar-extra" sx={{ display: 'flex', alignItems: 'center' }} />
           </Toolbar>
         </AppBar>
       )}
@@ -696,7 +700,7 @@ function Navbar20({
         component="main"
         sx={{
           flexGrow: 1,
-          p: page !== '/w' ? 3 : 0,
+          p: page !== '/w' ? mainPadding : 0,
           width: { sm: `calc(100% - ${open ? drawerWidth : minimizedDrawerWidth}px)` },
         }}
       >
@@ -704,7 +708,7 @@ function Navbar20({
         <SnackbarAlert severity={alert.type} open={alert.open} setOpen={(open) => setAlert({ ...alert, open })}>
           {alert.message}
         </SnackbarAlert>
-        {React.cloneElement(children, { authenticated, searchText, listStyle, cardSize })}
+        {React.cloneElement(children, { authenticated, searchText, listStyle, cardSize, showReleaseNotes, releaseNotes })}
       </Box>
     </Box>
   )

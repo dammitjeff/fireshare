@@ -4,12 +4,12 @@ DEFAULT_CONFIG = {
       "private": True
     },
     "allow_public_upload": False,
+    "allow_public_game_tag": False,
     "public_upload_folder_name": "public uploads",
     "admin_upload_folder_name": "uploads"
   },
   "ui_config": {
     "shareable_link_domain": "",
-    "show_public_upload": False,
     "show_admin_upload": True,
   },
   "integrations": {
