@@ -73,6 +73,58 @@ def remove_lock(path: Path):
         logger.debug(f"A lockfile has been removed at {str(lockfile)}")
         os.remove(lockfile)
 
+
+# Transcoding status file functions
+TRANSCODING_STATUS_FILE = "transcoding_status.json"
+
+def write_transcoding_status(data_path: Path, current: int, total: int, current_video: str = None):
+    """
+    Writes the current transcoding progress to a status file.
+    Called by the CLI during transcoding to report progress.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+    status = {
+        "is_running": True,
+        "current": current,
+        "total": total,
+        "current_video": current_video
+    }
+    try:
+        with open(status_file, 'w') as f:
+            json.dump(status, f)
+    except Exception as e:
+        logger.warning(f"Failed to write transcoding status: {e}")
+
+def read_transcoding_status(data_path: Path) -> dict:
+    """
+    Reads the current transcoding progress from the status file.
+    Returns default values if file doesn't exist or is invalid.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+    default_status = {"is_running": False, "current": 0, "total": 0, "current_video": None}
+
+    if not status_file.exists():
+        return default_status
+
+    try:
+        with open(status_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to read transcoding status: {e}")
+        return default_status
+
+def clear_transcoding_status(data_path: Path):
+    """
+    Removes the transcoding status file when transcoding completes or is cancelled.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+    if status_file.exists():
+        try:
+            os.remove(status_file)
+        except Exception as e:
+            logger.warning(f"Failed to remove transcoding status file: {e}")
+
+
 def video_id(path: Path, mb=16):
     """
     Calculates the id of a video by using xxhash on the first 16mb (or the whole file if it's less than that)

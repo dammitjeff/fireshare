@@ -16,7 +16,7 @@ import requests
 from werkzeug.utils import secure_filename
 
 
-from . import db, logger
+from . import db, logger, util
 from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
@@ -296,14 +296,26 @@ def get_transcoding_status():
 
     enabled = current_app.config.get('ENABLE_TRANSCODING', False)
     gpu_enabled = current_app.config.get('TRANSCODE_GPU', False)
+    paths = current_app.config['PATHS']
 
     # Check if transcoding is currently running
     is_running = _transcoding_process is not None and _transcoding_process.poll() is None
 
+    # Read progress from status file
+    progress = util.read_transcoding_status(paths['data'])
+
+    # If process ended but status file still exists, clean it up
+    if not is_running and progress.get('is_running'):
+        util.clear_transcoding_status(paths['data'])
+        progress = {"current": 0, "total": 0, "current_video": None}
+
     return jsonify({
         "enabled": enabled,
         "gpu_enabled": gpu_enabled,
-        "is_running": is_running
+        "is_running": is_running,
+        "current": progress.get('current', 0),
+        "total": progress.get('total', 0),
+        "current_video": progress.get('current_video')
     })
 
 
@@ -355,6 +367,10 @@ def cancel_transcoding():
         os.killpg(os.getpgid(_transcoding_process.pid), signal.SIGKILL)
     except ProcessLookupError:
         pass  # Process already dead
+
+    # Clear the status file
+    paths = current_app.config['PATHS']
+    util.clear_transcoding_status(paths['data'])
 
     _transcoding_process = None
     return jsonify({"status": "cancelled"})

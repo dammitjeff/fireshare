@@ -583,8 +583,13 @@ def create_boomerang_posters(regenerate):
 def transcode_videos(regenerate, video, include_corrupt):
     """Transcode videos to enabled resolution variants (1080p, 720p, 480p)"""
 
+    # Store data_path for signal handler access
+    _transcode_state = {'data_path': None}
+
     def handle_cancel(signum, frame):
         logger.info("Transcoding cancelled by user")
+        if _transcode_state['data_path']:
+            util.clear_transcoding_status(_transcode_state['data_path'])
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_cancel)
@@ -595,6 +600,7 @@ def transcode_videos(regenerate, video, include_corrupt):
             return
 
         paths = current_app.config['PATHS']
+        _transcode_state['data_path'] = paths['data']
         processed_root = Path(current_app.config['PROCESSED_DIRECTORY'])
         use_gpu = current_app.config.get('TRANSCODE_GPU', False)
         base_timeout = current_app.config.get('TRANSCODE_TIMEOUT', 7200)
@@ -633,7 +639,12 @@ def transcode_videos(regenerate, video, include_corrupt):
         total_videos = len(vinfos)
         logger.info(f'Processing {total_videos:,} videos for transcoding (GPU: {use_gpu}, Encoder: {encoder_preference})')
 
+        # Write initial transcoding status
+        util.write_transcoding_status(paths['data'], 0, total_videos)
+
         for idx, vi in enumerate(vinfos, 1):
+            # Update transcoding progress
+            util.write_transcoding_status(paths['data'], idx, total_videos, vi.video_id)
             derived_path = Path(processed_root, "derived", vi.video_id)
             video_path = Path(processed_root, "video_links", vi.video_id + vi.video.extension)
             
@@ -681,6 +692,7 @@ def transcode_videos(regenerate, video, include_corrupt):
                     db.session.add(vi)
                     db.session.commit()
 
+        util.clear_transcoding_status(paths['data'])
         logger.info("Transcoding complete")
 
 @cli.command()
