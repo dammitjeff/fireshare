@@ -180,11 +180,16 @@ const VideoCards = ({
             return vids.map((v, index) => {
               const currentDateKey = getDateKey(v)
               const prevDateKey = index > 0 ? getDateKey(vids[index - 1]) : null
+              const nextDateKey = index < vids.length - 1 ? getDateKey(vids[index + 1]) : null
               const isNewDate = showDateHeaders && currentDateKey !== prevDateKey
+              const isLastOfDate = currentDateKey !== nextDateKey
               const formattedDate = currentDateKey !== 'unknown' ? formatDate(currentDateKey) : 'Unknown Date'
-              const hasManyclips = dateCounts[currentDateKey] >= 5
+              const hasManyclips = dateCounts[currentDateKey] >= 6
               // When upload card is shown, first date group uses inline labels to flow with it
               const isFirstDateGroup = showUploadCard && currentDateKey === firstDateKey
+              // Insert flex break after a large date group ends to keep it isolated
+              // (applies even to first date group - it flows with upload card but still needs isolation from next date)
+              const needsBreakAfter = showDateHeaders && isLastOfDate && hasManyclips && nextDateKey !== null
 
               return (
                 <React.Fragment key={v.path + v.video_id}>
@@ -217,6 +222,9 @@ const VideoCards = ({
                     dateLabel={isNewDate && (!hasManyclips || isFirstDateGroup) ? formattedDate : null}
                     reserveDateSpace={showDateHeaders && (!hasManyclips || isFirstDateGroup)}
                   />
+                  {needsBreakAfter && (
+                    <Box sx={{ flexBasis: '100%', height: 0 }} />
+                  )}
                 </React.Fragment>
               )
             })
