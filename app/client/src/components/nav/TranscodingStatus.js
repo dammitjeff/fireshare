@@ -87,7 +87,6 @@ const TranscodingStatus = ({ open }) => {
           pl: 2,
           pr: 2,
           pb: 1,
-          overflow: 'hidden',
         }}
       >
         <Typography
@@ -115,9 +114,8 @@ const TranscodingStatus = ({ open }) => {
               fontFamily: 'monospace',
               fontSize: 12,
               color: '#999',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              whiteSpace: 'normal',
+              wordBreak: 'break-word',
             }}
           >
             {status.current_video}
