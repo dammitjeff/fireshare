@@ -18,7 +18,7 @@ def init_schedule(dburl, mins_between_scan=5):
         # Configure SQLite connection for better concurrency handling
         # StaticPool maintains a single persistent connection per worker process
         engine_options = {
-            'poolclass': StaticPool,  # Changed from NullPool
+            'poolclass': StaticPool,
             'connect_args': {
                 'check_same_thread': False,
             },

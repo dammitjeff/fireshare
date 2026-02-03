@@ -116,10 +116,10 @@ def create_app(init_schedule=False):
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{app.config["DATA_DIRECTORY"]}/db.sqlite'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     # Configure SQLite connection for better concurrency handling
-    # StaticPool maintains a single persistent connection per worker process
+    # StaticPool maintains a single persistent connection shared across threads in the process
     # This works optimally with WAL mode which is designed for persistent connections
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'poolclass': StaticPool,  # Single shared connection per worker
+        'poolclass': StaticPool,
         'connect_args': {
             'check_same_thread': False,  # Required for StaticPool with SQLite
         },
