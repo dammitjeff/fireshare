@@ -4,7 +4,7 @@ import StorageIcon from '@mui/icons-material/Storage'
 import SyncIcon from '@mui/icons-material/Sync'
 import { StatsService } from '../../services'
 
-const DiskSpaceIndicator = ({ open }) => {
+const DiskSpaceIndicator = ({ open, visible }) => {
   const [folderSize, setFolderSize] = React.useState(null)
 
   React.useEffect(() => {
@@ -16,9 +16,14 @@ const DiskSpaceIndicator = ({ open }) => {
         console.error('Error fetching folder size:', error)
       }
     }
+    if (visible) {
+      fetchFolderSize()
+    }
+  }, [visible])
 
-    fetchFolderSize()
-  }, [])
+  if (!visible) {
+    return null
+  }
 
   if (folderSize !== null) {
     return open ? (
