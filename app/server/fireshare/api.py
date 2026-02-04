@@ -277,25 +277,38 @@ def get_warnings():
         else:
             return jsonify(warnings)
 
-@api.route('/api/folder-size')
+def get_folder_size(folder_path):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            if os.path.isfile(fp):  # Avoid broken symlinks
+                total_size += os.path.getsize(fp)
+    return total_size
+
+@api.route('/api/folder-size', methods=['GET'])
 @login_required
-def get_folder_size():
-    """
-    Get disk space information for the videos path.
-    Returns total, used, free space in bytes and usage percentage.
-    """
+def folder_size():
     try:
         paths = current_app.config['PATHS']
-        video_path = paths['videos']
-        
-        # Get disk usage statistics
-        usage = shutil.disk_usage(video_path)
-        
+        path = paths['videos']
+        size_bytes = get_folder_size(path)
+        size_mb = size_bytes / (1024 * 1024)
+
+        if size_mb < 1024:
+            rounded_mb = round(size_mb / 100) * 100
+            size_pretty = f"{rounded_mb} MB"
+        elif size_mb < 1024 * 1024:
+            size_gb = size_mb / 1024
+            size_pretty = f"{round(size_gb, 1)} GB"
+        else:
+            size_tb = size_mb / (1024 * 1024)
+            size_pretty = f"{round(size_tb, 1)} TB"
+
         return jsonify({
-            'total': usage.total,
-            'used': usage.used,
-            'free': usage.free,
-            'percent_used': round((usage.used / usage.total) * 100, 1)
+            "folder": str(path),
+            "size_bytes": size_bytes,
+            "size_pretty": size_pretty
         })
     except Exception as e:
         logger.error(f"Error getting folder size: {e}")

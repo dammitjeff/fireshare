@@ -1,109 +1,136 @@
 import * as React from 'react'
-import { Box, Typography, LinearProgress, Tooltip } from '@mui/material'
+import { Box, Typography, Tooltip, IconButton, Grid } from '@mui/material'
 import StorageIcon from '@mui/icons-material/Storage'
+import SyncIcon from '@mui/icons-material/Sync'
 import { StatsService } from '../../services'
 
-const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
 const DiskSpaceIndicator = ({ open }) => {
-  const [diskSpace, setDiskSpace] = React.useState(null)
-  const [loading, setLoading] = React.useState(true)
+  const [folderSize, setFolderSize] = React.useState(null)
 
   React.useEffect(() => {
-    const fetchDiskSpace = async () => {
+    const fetchFolderSize = async () => {
       try {
         const data = await StatsService.getFolderSize()
-        setDiskSpace(data)
+        setFolderSize(data.size_pretty)
       } catch (error) {
-        console.error('Failed to fetch disk space:', error)
-      } finally {
-        setLoading(false)
+        console.error('Error fetching folder size:', error)
       }
     }
 
-    fetchDiskSpace()
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchDiskSpace, 30000)
-    return () => clearInterval(interval)
+    fetchFolderSize()
   }, [])
 
-  if (loading || !diskSpace) {
-    return null
-  }
-
-  const usedPercent = diskSpace.percent_used || 0
-  const usedSpace = formatBytes(diskSpace.used)
-  const totalSpace = formatBytes(diskSpace.total)
-  const freeSpace = formatBytes(diskSpace.free)
-
-  return (
-    <Box
-      sx={{
-        p: 1,
-        borderTop: '1px solid rgba(194, 224, 255, 0.18)',
-      }}
-    >
-      {open ? (
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-            <StorageIcon sx={{ fontSize: 16, mr: 1, color: 'rgba(194, 224, 255, 0.7)' }} />
-            <Typography sx={{ fontSize: 11, color: 'rgba(194, 224, 255, 0.7)' }}>Storage</Typography>
-          </Box>
-          <LinearProgress
-            variant="determinate"
-            value={usedPercent}
+  if (folderSize !== null) {
+    return open ? (
+      <Box
+        sx={{
+          width: 222,
+          m: 1,
+          height: 40,
+          border: '1px solid rgba(194, 224, 255, 0.18)',
+          borderRadius: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          pl: 2,
+          pr: 2,
+          color: '#EBEBEB',
+          fontWeight: 600,
+          fontSize: 13,
+          backgroundColor: 'transparent',
+          ':hover': {
+            backgroundColor: 'rgba(194, 224, 255, 0.08)',
+          },
+        }}
+      >
+        <Grid container alignItems="center">
+          <Grid item>
+            <Typography
+              sx={{
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                fontSize: 12,
+                color: '#EBEBEB',
+              }}
+            >
+              Disk Usage:{' '}
+              <Box component="span" sx={{ color: '#2684FF' }}>
+                {folderSize}
+              </Box>
+            </Typography>
+          </Grid>
+        </Grid>
+      </Box>
+    ) : (
+      <Tooltip title={`Disk Usage: ${folderSize}`} arrow placement="right">
+        <Box
+          sx={{
+            width: 42,
+            m: 1,
+            height: 40,
+            border: '1px solid rgba(194, 224, 255, 0.18)',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            ':hover': {
+              backgroundColor: 'rgba(194, 224, 255, 0.08)',
+            },
+          }}
+        >
+          <Typography
             sx={{
-              height: 6,
-              borderRadius: 1,
-              mb: 0.5,
-              backgroundColor: 'rgba(194, 224, 255, 0.1)',
-              '& .MuiLinearProgress-bar': {
-                backgroundColor: usedPercent > 90 ? '#f44336' : usedPercent > 75 ? '#ff9800' : '#2684FF',
+              fontFamily: 'monospace',
+              fontWeight: 600,
+              fontSize: 15,
+              color: '#EBEBEB',
+            }}
+          >
+            <IconButton sx={{ p: 0.5, pointerEvents: 'all' }}>
+              <StorageIcon sx={{ color: '#EBEBEB' }} />
+            </IconButton>
+          </Typography>
+        </Box>
+      </Tooltip>
+    )
+  } else {
+    return (
+      <Box
+        sx={{
+          width: open ? 222 : 42,
+          m: 1,
+          height: 40,
+          border: '1px solid rgba(194, 224, 255, 0.18)',
+          borderRadius: '8px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#888',
+          fontWeight: 600,
+          fontSize: 13,
+        }}
+      >
+        {open ? (
+          <Typography variant="body2" color="textSecondary">
+            Loading Disk Usage...
+          </Typography>
+        ) : (
+          <SyncIcon
+            sx={{
+              animation: 'spin 2s linear infinite',
+              '@keyframes spin': {
+                '0%': {
+                  transform: 'rotate(360deg)',
+                },
+                '100%': {
+                  transform: 'rotate(0deg)',
+                },
               },
             }}
           />
-          <Typography sx={{ fontSize: 10, color: 'rgba(194, 224, 255, 0.6)' }}>
-            {usedSpace} / {totalSpace} ({usedPercent}% used)
-          </Typography>
-        </Box>
-      ) : (
-        <Tooltip title={`Storage: ${usedSpace} / ${totalSpace} (${usedPercent}% used)`} placement="right">
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              position: 'relative',
-            }}
-          >
-            <StorageIcon
-              sx={{
-                fontSize: 24,
-                color: usedPercent > 90 ? '#f44336' : usedPercent > 75 ? '#ff9800' : 'rgba(194, 224, 255, 0.7)',
-              }}
-            />
-            <Typography
-              sx={{
-                position: 'absolute',
-                bottom: -2,
-                fontSize: 8,
-                fontWeight: 'bold',
-                color: usedPercent > 90 ? '#f44336' : usedPercent > 75 ? '#ff9800' : 'rgba(194, 224, 255, 0.7)',
-              }}
-            >
-              {usedPercent}%
-            </Typography>
-          </Box>
-        </Tooltip>
-      )}
-    </Box>
-  )
+        )}
+      </Box>
+    )
+  }
 }
 
 export default DiskSpaceIndicator
