@@ -30,14 +30,13 @@ const DiskSpaceIndicator = ({ open, visible }) => {
       <Box
         sx={{
           width: 222,
-          m: 1,
-          height: 40,
+          mx: 1,
+          px: 2,
+          pt: 1.5,
           border: '1px solid rgba(194, 224, 255, 0.18)',
           borderRadius: '8px',
           display: 'flex',
           alignItems: 'center',
-          pl: 2,
-          pr: 2,
           color: '#EBEBEB',
           fontWeight: 600,
           fontSize: 13,

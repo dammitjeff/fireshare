@@ -18,7 +18,7 @@ const TranscodingStatus = ({ open }) => {
           setStatus(res.data)
           setIsPolling(true)
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     checkInitial()
   }, [])
@@ -54,7 +54,7 @@ const TranscodingStatus = ({ open }) => {
           setStatus(null)
           setIsPolling(false)
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     checkStatus()
@@ -89,47 +89,78 @@ const TranscodingStatus = ({ open }) => {
       <>
         <Box
           sx={{
-            pl: 2,
-            pr: 2,
-            pb: 1,
+            width: 222,
+            mx: 1,
+            px: 2,
+            pt: 1.5,
+            border: '1px solid rgba(194, 224, 255, 0.18)',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            color: '#EBEBEB',
+            fontWeight: 600,
+            fontSize: 13,
+            backgroundColor: 'transparent',
+            ':hover': {
+              backgroundColor: 'rgba(194, 224, 255, 0.08)',
+            },
           }}
         >
-          <Typography
-            sx={{
-              fontFamily: 'monospace',
-              fontWeight: 600,
-              fontSize: 15,
-              color: '#EBEBEB',
-            }}
-          >
-            {status.total === 0 ? (
-              'Preparing transcode...'
-            ) : (
-              <>
-                Transcoding{' '}
-                <Box component="span" sx={{ color: '#FF9800' }}>
-                  {status.current}/{status.total}
-                </Box>
-              </>
-            )}
-          </Typography>
-          {status.current_video && (
-            <Tooltip title={status.current_video} arrow placement="right">
+          <Grid container alignItems="center">
+            <Grid item>
               <Typography
                 sx={{
                   fontFamily: 'monospace',
+                  fontWeight: 600,
                   fontSize: 12,
-                  color: '#999',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
+                  color: '#EBEBEB',
                 }}
               >
-                {status.current_video}
+                Disk Usage:{' '}
+                <Box component="span" sx={{ color: '#2684FF' }}>
+                  {folderSize}
+                </Box>
               </Typography>
-            </Tooltip>
-          )}
+
+
+              <Typography
+                sx={{
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  color: '#EBEBEB',
+                }}
+              >
+                {status.total === 0 ? (
+                  'Preparing transcode...'
+                ) : (
+                  <>
+                    Transcoding{' '}
+                    <Box component="span" sx={{ color: '#2684FF' }}>
+                      {status.current}/{status.total}
+                    </Box>
+                  </>
+                )}
+              </Typography>
+              {status.current_video && (
+                <Tooltip title={status.current_video} arrow placement="right">
+                  <Typography
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: '#999',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {status.current_video}
+                  </Typography>
+                </Tooltip>
+              )}
+            </Grid>
+          </Grid>
         </Box>
-        <Divider />
       </>
     )
   }
