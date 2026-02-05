@@ -69,9 +69,9 @@ const TranscodingStatus = ({ open }) => {
         <Box
           sx={{
             width: 222,
-            mx: 1,
+            m: 1,
             px: 2,
-            pt: 1.5,
+            py: 1.5,
             border: '1px solid rgba(194, 224, 255, 0.18)',
             borderRadius: '8px',
             display: 'flex',
@@ -110,9 +110,9 @@ const TranscodingStatus = ({ open }) => {
         <Box
           sx={{
             width: 222,
-            mx: 1,
+            m: 1,
             px: 2,
-            pt: 1.5,
+            py: 1.5,
             border: '1px solid rgba(194, 224, 255, 0.18)',
             borderRadius: '8px',
             display: 'flex',
@@ -140,7 +140,7 @@ const TranscodingStatus = ({ open }) => {
                   'Preparing transcode...'
                 ) : (
                   <>
-                    Transcoding{' '}
+                    Transcoding...{' '}
                     <Box component="span" sx={{ color: '#2684FF' }}>
                       {status.current}/{status.total}
                     </Box>

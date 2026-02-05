@@ -32,7 +32,7 @@ const DiskSpaceIndicator = ({ open, visible }) => {
           width: 222,
           mx: 1,
           px: 2,
-          pt: 1.5,
+          py: 1.5,
           border: '1px solid rgba(194, 224, 255, 0.18)',
           borderRadius: '8px',
           display: 'flex',
