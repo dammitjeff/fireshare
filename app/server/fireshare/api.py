@@ -287,6 +287,18 @@ def get_warnings():
 _transcoding_process = None
 
 
+def _is_pid_running(pid):
+    """Check if a process with the given PID is still running."""
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)  # Signal 0 doesn't kill, just checks if process exists
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # Process exists but we don't have permission
+
 @api.route('/api/admin/transcoding/status', methods=["GET"])
 @login_required
 def get_transcoding_status():
@@ -299,14 +311,18 @@ def get_transcoding_status():
 
     subprocess_running = _transcoding_process is not None and _transcoding_process.poll() is None
     progress = util.read_transcoding_status(paths['data'])
-    is_running = subprocess_running or progress.get('is_running', False)
+
+    # Verify the PID from status file is actually still running (handles container restart)
+    pid_alive = _is_pid_running(progress.get('pid'))
+    is_running = subprocess_running or (progress.get('is_running', False) and pid_alive)
+
+    # Clean up stale status
+    if progress.get('is_running') and not is_running:
+        util.clear_transcoding_status(paths['data'])
+        progress = {"current": 0, "total": 0, "current_video": None}
 
     if not subprocess_running and _transcoding_process is not None:
         _transcoding_process = None
-        if progress.get('is_running'):
-            util.clear_transcoding_status(paths['data'])
-            progress = {"current": 0, "total": 0, "current_video": None}
-            is_running = False
 
     return jsonify({
         "enabled": enabled,
@@ -339,6 +355,9 @@ def start_transcoding():
             env=os.environ.copy(),
             start_new_session=True
         )
+        # Write the PID to the status file so we can recover it after server restart
+        paths = current_app.config['PATHS']
+        util.write_transcoding_status(paths['data'], 0, 0, None, _transcoding_process.pid)
         return jsonify({"status": "started", "pid": _transcoding_process.pid})
     except Exception as e:
         return Response(status=500, response=f'Failed to start transcoding: {str(e)}')
@@ -349,26 +368,39 @@ def start_transcoding():
 def cancel_transcoding():
     """Cancel ongoing transcoding."""
     global _transcoding_process
+    import signal
 
-    if _transcoding_process is None:
-        return Response(status=400, response='No transcoding in progress')
+    paths = current_app.config['PATHS']
+    pid_to_kill = None
 
-    if _transcoding_process.poll() is not None:
-        _transcoding_process = None
-        return Response(status=400, response='Transcoding already finished')
+    # Try to get PID from global variable first
+    if _transcoding_process is not None:
+        if _transcoding_process.poll() is not None:
+            # Process already finished
+            _transcoding_process = None
+        else:
+            pid_to_kill = _transcoding_process.pid
+
+    # If no global process, try to recover PID from status file
+    if pid_to_kill is None:
+        status = util.read_transcoding_status(paths['data'])
+        pid_to_kill = status.get('pid')
+        if pid_to_kill is None or not status.get('is_running', False):
+            return Response(status=400, response='No transcoding in progress')
 
     try:
         # Kill the entire process group (including ffmpeg child processes)
-        import signal
-        os.killpg(os.getpgid(_transcoding_process.pid), signal.SIGTERM)
-        _transcoding_process.wait(timeout=5)
+        os.killpg(os.getpgid(pid_to_kill), signal.SIGTERM)
+        if _transcoding_process is not None:
+            _transcoding_process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        os.killpg(os.getpgid(_transcoding_process.pid), signal.SIGKILL)
+        os.killpg(os.getpgid(pid_to_kill), signal.SIGKILL)
     except ProcessLookupError:
         pass  # Process already dead
+    except OSError:
+        pass  # Process group doesn't exist
 
     # Clear the status file
-    paths = current_app.config['PATHS']
     util.clear_transcoding_status(paths['data'])
 
     _transcoding_process = None

@@ -77,17 +77,25 @@ def remove_lock(path: Path):
 # Transcoding status file functions
 TRANSCODING_STATUS_FILE = "transcoding_status.json"
 
-def write_transcoding_status(data_path: Path, current: int, total: int, current_video: str = None):
+def write_transcoding_status(data_path: Path, current: int, total: int, current_video: str = None, pid: int = None):
     """
     Writes the current transcoding progress to a status file.
     Called by the CLI during transcoding to report progress.
+    If pid is provided, it will be included. Otherwise, preserves existing PID from the file.
     """
     status_file = data_path / TRANSCODING_STATUS_FILE
+
+    # Preserve existing PID if not provided (so CLI updates don't lose the PID)
+    if pid is None:
+        existing = read_transcoding_status(data_path)
+        pid = existing.get('pid')
+
     status = {
         "is_running": True,
         "current": current,
         "total": total,
-        "current_video": current_video
+        "current_video": current_video,
+        "pid": pid
     }
     try:
         with open(status_file, 'w') as f:
