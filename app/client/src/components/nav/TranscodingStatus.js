@@ -128,7 +128,9 @@ const TranscodingStatus = ({ open }) => {
             }}
           >
             <Grid container alignItems="center">
-              <Grid item>
+              <Grid item sx={{
+                overflow: 'hidden'
+              }}>
                 <Typography
                   sx={{
                     fontFamily: 'monospace',
