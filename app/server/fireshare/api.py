@@ -4,6 +4,7 @@ import shutil
 import random
 import logging
 import threading
+import subprocess
 from subprocess import Popen
 from textwrap import indent
 from flask import Blueprint, render_template, request, Response, jsonify, current_app, send_file, redirect
@@ -15,7 +16,7 @@ import requests
 from werkzeug.utils import secure_filename
 
 
-from . import db, logger
+from . import db, logger, util
 from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
@@ -89,8 +90,8 @@ def get_video_path(id, subid=None, quality=None):
         raise Exception(f"No video found for {id}")
     paths = current_app.config['PATHS']
     
-    # Handle quality variants (720p, 1080p)
-    if quality and quality in ['720p', '1080p']:
+    # Handle quality variants (480p, 720p, 1080p)
+    if quality and quality in ['480p', '720p', '1080p']:
         # Check if the transcoded version exists
         derived_path = paths["processed"] / "derived" / id / f"{id}-{quality}.mp4"
         if derived_path.exists():
@@ -246,6 +247,11 @@ def get_or_update_config():
         config = json.load(file)
         file.close()
         if config_path.exists():
+            # Include transcoding status (from env vars, doesn't change at runtime)
+            config['transcoding_status'] = {
+                'enabled': current_app.config.get('ENABLE_TRANSCODING', False),
+                'gpu_enabled': current_app.config.get('TRANSCODE_GPU', False),
+            }
             return config
         else:
             return jsonify({})
@@ -276,6 +282,130 @@ def get_warnings():
             return jsonify({})
         else:
             return jsonify(warnings)
+
+# Global variable to track transcoding process
+_transcoding_process = None
+
+
+def _is_pid_running(pid):
+    """Check if a process with the given PID is still running."""
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)  # Signal 0 doesn't kill, just checks if process exists
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # Process exists but we don't have permission
+
+@api.route('/api/admin/transcoding/status', methods=["GET"])
+@login_required
+def get_transcoding_status():
+    """Get transcoding status and capabilities."""
+    global _transcoding_process
+
+    enabled = current_app.config.get('ENABLE_TRANSCODING', False)
+    gpu_enabled = current_app.config.get('TRANSCODE_GPU', False)
+    paths = current_app.config['PATHS']
+
+    subprocess_running = _transcoding_process is not None and _transcoding_process.poll() is None
+    progress = util.read_transcoding_status(paths['data'])
+
+    # Verify the PID from status file is actually still running (handles container restart)
+    pid_alive = _is_pid_running(progress.get('pid'))
+    is_running = subprocess_running or (progress.get('is_running', False) and pid_alive)
+
+    # Clean up stale status
+    if progress.get('is_running') and not is_running:
+        util.clear_transcoding_status(paths['data'])
+        progress = {"current": 0, "total": 0, "current_video": None}
+
+    if not subprocess_running and _transcoding_process is not None:
+        _transcoding_process = None
+
+    return jsonify({
+        "enabled": enabled,
+        "gpu_enabled": gpu_enabled,
+        "is_running": is_running,
+        "current": progress.get('current', 0),
+        "total": progress.get('total', 0),
+        "current_video": progress.get('current_video')
+    })
+
+
+@api.route('/api/admin/transcoding/start', methods=["POST"])
+@login_required
+def start_transcoding():
+    """Start bulk transcoding of all videos."""
+    global _transcoding_process
+
+    if not current_app.config.get('ENABLE_TRANSCODING', False):
+        return Response(status=400, response='Transcoding is not enabled')
+
+    # Check if already running
+    if _transcoding_process is not None and _transcoding_process.poll() is None:
+        return Response(status=400, response='Transcoding is already in progress')
+
+    # Start transcoding in background - output goes to server terminal
+    # Use start_new_session so we can kill the entire process group (including ffmpeg)
+    try:
+        _transcoding_process = subprocess.Popen(
+            ['fireshare', 'transcode-videos'],
+            env=os.environ.copy(),
+            start_new_session=True
+        )
+        # Write the PID to the status file so we can recover it after server restart
+        paths = current_app.config['PATHS']
+        util.write_transcoding_status(paths['data'], 0, 0, None, _transcoding_process.pid)
+        return jsonify({"status": "started", "pid": _transcoding_process.pid})
+    except Exception as e:
+        return Response(status=500, response=f'Failed to start transcoding: {str(e)}')
+
+
+@api.route('/api/admin/transcoding/cancel', methods=["POST"])
+@login_required
+def cancel_transcoding():
+    """Cancel ongoing transcoding."""
+    global _transcoding_process
+    import signal
+
+    paths = current_app.config['PATHS']
+    pid_to_kill = None
+
+    # Try to get PID from global variable first
+    if _transcoding_process is not None:
+        if _transcoding_process.poll() is not None:
+            # Process already finished
+            _transcoding_process = None
+        else:
+            pid_to_kill = _transcoding_process.pid
+
+    # If no global process, try to recover PID from status file
+    if pid_to_kill is None:
+        status = util.read_transcoding_status(paths['data'])
+        pid_to_kill = status.get('pid')
+        if pid_to_kill is None or not status.get('is_running', False):
+            return Response(status=400, response='No transcoding in progress')
+
+    try:
+        # Kill the entire process group (including ffmpeg child processes)
+        os.killpg(os.getpgid(pid_to_kill), signal.SIGTERM)
+        if _transcoding_process is not None:
+            _transcoding_process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(os.getpgid(pid_to_kill), signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Process already dead
+    except OSError:
+        pass  # Process group doesn't exist
+
+    # Clear the status file
+    util.clear_transcoding_status(paths['data'])
+
+    _transcoding_process = None
+    return jsonify({"status": "cancelled"})
+
 
 def get_folder_size(folder_path):
     total_size = 0
@@ -309,7 +439,6 @@ def folder_size():
         "size_bytes": size_bytes,
         "size_pretty": size_pretty
     })
-
 @api.route('/api/admin/reset-database', methods=["POST"])
 @login_required
 def reset_database():

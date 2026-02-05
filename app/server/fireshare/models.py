@@ -51,6 +51,7 @@ class VideoInfo(db.Model):
     width       = db.Column(db.Integer)
     height      = db.Column(db.Integer)
     private     = db.Column(db.Boolean, default=True)
+    has_480p    = db.Column(db.Boolean, default=False)
     has_720p    = db.Column(db.Boolean, default=False)
     has_1080p   = db.Column(db.Boolean, default=False)
 
@@ -85,6 +86,7 @@ class VideoInfo(db.Model):
             "height": self.height,
             "duration": round(self.duration) if self.duration else 0,
             "framerate": self.framerate,
+            "has_480p": self.has_480p,
             "has_720p": self.has_720p,
             "has_1080p": self.has_1080p
         }

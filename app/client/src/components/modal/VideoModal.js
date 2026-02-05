@@ -26,7 +26,7 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
   const [privateView, setPrivateView] = React.useState(false)
   const [vid, setVideo] = React.useState(null)
   const [viewAdded, setViewAdded] = React.useState(false)
-  const [alert, setAlert] = React.useState({ open: false })
+  const [alert, setAlert] = React.useState({ open: false, type: 'info', message: '' })
   const [autoplay, setAutoplay] = useState(false)
   const [selectedGame, setSelectedGame] = React.useState(null)
 
@@ -84,13 +84,11 @@ const VideoModal = ({ open, onClose, videoId, feedView, authenticated, updateCal
           setSelectedGame(null)
         }
       } catch (err) {
-        setAlert(
-          setAlert({
-            type: 'error',
-            message: 'Unable to load video details',
-            open: true,
-          }),
-        )
+        setAlert({
+          type: 'error',
+          message: 'Unable to load video details',
+          open: true,
+        })
       }
     }
     if (videoId) {
