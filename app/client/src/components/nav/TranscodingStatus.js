@@ -109,17 +109,19 @@ const TranscodingStatus = ({ open }) => {
           )}
         </Typography>
         {status.current_video && (
-          <Typography
-            sx={{
-              fontFamily: 'monospace',
-              fontSize: 12,
-              color: '#999',
-              whiteSpace: 'normal',
-              wordBreak: 'break-word',
-            }}
-          >
-            {status.current_video}
-          </Typography>
+          <Tooltip title={status.current_video} arrow placement="right">
+            <Typography
+              sx={{
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: '#999',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+              }}
+            >
+              {status.current_video}
+            </Typography>
+          </Tooltip>
         )}
       </Box>
     )
