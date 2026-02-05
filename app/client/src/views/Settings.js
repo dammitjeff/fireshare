@@ -528,6 +528,9 @@ const Settings = ({ authenticated }) => {
                   <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 18 }}>
                     Transcoding
                   </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Transcoding can convert your videos to multiple quality levels for smoother streaming on slower connections.
+                  </Typography>
                 </Box>
                 {!transcodingStatus.enabled ? (
                   <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
@@ -562,9 +565,9 @@ const Settings = ({ authenticated }) => {
                           }))
                         }
                       >
-                        <option value="auto">Auto (H.264 first, then AV1)</option>
-                        <option value="h264">H.264 Only (Faster)</option>
-                        <option value="av1">AV1 Only (Smaller files, slower)</option>
+                        <option value="auto">Autodetect</option>
+                        <option value="h264">H.264</option>
+                        <option value="av1">AV1</option>
                       </NativeSelect>
                     </FormControl>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
