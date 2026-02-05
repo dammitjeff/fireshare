@@ -1,6 +1,5 @@
 import * as React from 'react'
-import Box from '@mui/material/Box'
-import Divider from '@mui/material/Divider'
+import { Grid, Box } from '@mui/material'
 import Typography from '@mui/material/Typography'
 import Tooltip from '@mui/material/Tooltip'
 import { ConfigService } from '../../services'
@@ -67,26 +66,6 @@ const TranscodingStatus = ({ open }) => {
   if (stoppedMessage) {
     return (
       <>
-        <Box sx={{ pl: 2, pr: 2, pb: 1 }}>
-          <Typography
-            sx={{
-              fontFamily: 'monospace',
-              fontWeight: 600,
-              fontSize: open ? 15 : 12,
-              color: '#999',
-            }}
-          >
-            {stoppedMessage}
-          </Typography>
-        </Box>
-        <Divider />
-      </>
-    )
-  }
-
-  if (open) {
-    return (
-      <>
         <Box
           sx={{
             width: 222,
@@ -116,13 +95,39 @@ const TranscodingStatus = ({ open }) => {
                   color: '#EBEBEB',
                 }}
               >
-                Disk Usage:{' '}
-                <Box component="span" sx={{ color: '#2684FF' }}>
-                  {folderSize}
-                </Box>
+                {stoppedMessage}
               </Typography>
+            </Grid>
+          </Grid>
+        </Box>
+      </>
+    )
+  }
 
-
+  if (open) {
+    return (
+      <>
+        <Box
+          sx={{
+            width: 222,
+            mx: 1,
+            px: 2,
+            pt: 1.5,
+            border: '1px solid rgba(194, 224, 255, 0.18)',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            color: '#EBEBEB',
+            fontWeight: 600,
+            fontSize: 13,
+            backgroundColor: 'transparent',
+            ':hover': {
+              backgroundColor: 'rgba(194, 224, 255, 0.08)',
+            },
+          }}
+        >
+          <Grid container alignItems="center">
+            <Grid item>
               <Typography
                 sx={{
                   fontFamily: 'monospace',
@@ -191,7 +196,6 @@ const TranscodingStatus = ({ open }) => {
           </Typography>
         </Box>
       </Tooltip>
-      <Divider />
     </>
   )
 }
