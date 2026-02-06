@@ -22,21 +22,35 @@ const TranscodingStatus = ({ open }) => {
   }, [])
 
   React.useEffect(() => {
+    let interval = null
+    const isRunningRef = { current: false }
+
     const checkStatus = async () => {
       try {
         const res = await ConfigService.getTranscodingStatus()
         if (res.data.is_running) {
           setStatus(res.data)
+          if (!isRunningRef.current) {
+            isRunningRef.current = true
+            clearInterval(interval)
+            interval = setInterval(checkStatus, 3000)
+          }
         } else {
           setStatus(null)
+          if (isRunningRef.current) {
+            isRunningRef.current = false
+            clearInterval(interval)
+            interval = setInterval(checkStatus, 15000)
+          }
         }
       } catch (e) { }
     }
 
     checkStatus()
-    const interval = setInterval(checkStatus, status?.is_running ? 3000 : 15000)
+    // Start with slow polling
+    interval = setInterval(checkStatus, 15000)
     return () => clearInterval(interval)
-  }, [status?.is_running])
+  }, [])
 
   if (!status && !stoppedMessage) return null
 
