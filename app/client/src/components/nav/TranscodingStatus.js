@@ -24,37 +24,38 @@ const TranscodingStatus = ({ open }) => {
   }, [])
 
   React.useEffect(() => {
+    let cancelled = false
+
+    const scheduleNext = (delay) => {
+      clearTimeout(intervalRef.current)
+      intervalRef.current = setTimeout(() => checkStatus(), delay)
+    }
+
     const checkStatus = async () => {
       try {
         const res = await ConfigService.getTranscodingStatus()
+        if (cancelled) return
         if (res.data.is_running) {
           setStatus(res.data)
-          if (!isRunningRef.current) {
-            isRunningRef.current = true
-            clearInterval(intervalRef.current)
-            intervalRef.current = setInterval(checkStatus, 3000)
-          }
+          isRunningRef.current = true
+          scheduleNext(3000)
         } else {
           setStatus(null)
-          if (isRunningRef.current) {
-            isRunningRef.current = false
-            clearInterval(intervalRef.current)
-            intervalRef.current = setInterval(checkStatus, 15000)
-          }
+          isRunningRef.current = false
+          scheduleNext(15000)
         }
-      } catch (e) { }
-    }
-
-    const init = async () => {
-      await checkStatus()
-      if (!intervalRef.current) {
-        intervalRef.current = setInterval(checkStatus, 15000)
+      } catch (e) {
+        if (!cancelled) {
+          scheduleNext(isRunningRef.current ? 3000 : 15000)
+        }
       }
     }
-    init()
+
+    checkStatus()
 
     return () => {
-      clearInterval(intervalRef.current)
+      cancelled = true
+      clearTimeout(intervalRef.current)
       intervalRef.current = null
     }
   }, [])
