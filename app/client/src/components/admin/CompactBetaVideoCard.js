@@ -1,7 +1,11 @@
 import React from 'react'
-import { Box, Typography } from '@mui/material'
+import { Box, Typography, IconButton } from '@mui/material'
+import LinkIcon from '@mui/icons-material/Link'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
+import { CopyToClipboard } from 'react-copy-to-clipboard'
 import { getPublicWatchUrl, getServedBy, getUrl, toHHMMSS, getVideoUrl } from '../../common/utils'
-import { GameService } from '../../services'
+import { GameService, VideoService } from '../../services'
 import _ from 'lodash'
 
 const URL = getUrl()
@@ -12,10 +16,14 @@ const CompactBetaVideoCard = ({
   video,
   openVideoHandler,
   cardWidth,
+  alertHandler,
+  authenticated,
 }) => {
   const [intVideo, setIntVideo] = React.useState(video)
   const [hover, setHover] = React.useState(false)
+  const [thumbnailHover, setThumbnailHover] = React.useState(false)
   const [game, setGame] = React.useState(null)
+  const [privateView, setPrivateView] = React.useState(video.info?.private)
 
   const previousVideoRef = React.useRef()
   const previousVideo = previousVideoRef.current
@@ -52,6 +60,21 @@ const CompactBetaVideoCard = ({
   const handleMouseDown = (e) => {
     if (e.button === 1) {
       window.open(`${PURL}${video.video_id}`, '_blank')
+    }
+  }
+
+  const handlePrivacyChange = async (e) => {
+    e.stopPropagation()
+    try {
+      await VideoService.updatePrivacy(video.video_id, !privateView)
+      alertHandler?.({
+        type: privateView ? 'info' : 'warning',
+        message: privateView ? 'Added to your public feed' : 'Removed from your public feed',
+        open: true,
+      })
+      setPrivateView(!privateView)
+    } catch (err) {
+      console.log(err)
     }
   }
 
@@ -93,8 +116,14 @@ const CompactBetaVideoCard = ({
           overflow: 'hidden',
         }}
         onClick={() => openVideoHandler(video.video_id)}
-        onMouseEnter={debouncedMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseEnter={(e) => {
+          setThumbnailHover(true)
+          debouncedMouseEnter(e)
+        }}
+        onMouseLeave={() => {
+          setThumbnailHover(false)
+          handleMouseLeave()
+        }}
         onMouseDown={handleMouseDown}
       >
         <img
@@ -152,13 +181,78 @@ const CompactBetaVideoCard = ({
           <Typography
             sx={{
               fontWeight: 600,
-              fontSize: 12,
+              fontSize: 14,
               color: 'white',
             }}
           >
             {toHHMMSS(video.info?.duration)}
           </Typography>
         </Box>
+
+        {/* Copy link button - shows on hover */}
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 12,
+            left: 12,
+            opacity: thumbnailHover ? 1 : 0,
+            transition: 'opacity 0.2s ease-in-out',
+          }}
+        >
+          <CopyToClipboard text={`${PURL}${video.video_id}`}>
+            <IconButton
+              sx={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                '&:hover': {
+                  background: '#2684FF88',
+                },
+              }}
+              aria-label="copy link"
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                alertHandler?.({
+                  type: 'info',
+                  message: 'Link copied to clipboard',
+                  open: true,
+                })
+              }}
+            >
+              <LinkIcon sx={{ color: 'white', fontSize: 24 }} />
+            </IconButton>
+          </CopyToClipboard>
+        </Box>
+
+        {/* Visibility toggle button - shows on hover when authenticated */}
+        {authenticated && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              opacity: thumbnailHover ? 1 : 0,
+              transition: 'opacity 0.2s ease-in-out',
+            }}
+          >
+            <IconButton
+              sx={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                '&:hover': {
+                  background: privateView ? '#FF232360' : '#2684FF88',
+                },
+              }}
+              aria-label="toggle visibility"
+              size="small"
+              onClick={handlePrivacyChange}
+            >
+              {privateView ? (
+                <VisibilityOffIcon sx={{ color: '#FF6B6B', fontSize: 24 }} />
+              ) : (
+                <VisibilityIcon sx={{ color: 'white', fontSize: 24 }} />
+              )}
+            </IconButton>
+          </Box>
+        )}
       </Box>
 
       {/* Info section below thumbnail */}

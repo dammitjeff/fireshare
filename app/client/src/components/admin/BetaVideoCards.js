@@ -164,6 +164,8 @@ const BetaVideoCards = ({
                 video={v}
                 openVideoHandler={openVideo}
                 cardWidth={size}
+                alertHandler={memoizedHandleAlert}
+                authenticated={authenticated}
               />
             </Grid>
           ))}
