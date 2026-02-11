@@ -181,20 +181,23 @@ See the Fireshare Configuration Wiki: <a href="https://github.com/ShaneIsrael/fi
 For LDAP configuration, see [LDAP.md](./LDAP.md)
 
 ### Video Transcoding (Optional)
+---
 
 Fireshare supports automatic transcoding of your videos to create multiple quality variants. This feature is **disabled by default** and must be enabled via environment variables.
+
+<img width="881" height="489" alt="Screenshot 2026-02-11 at 9 36 56 AM" src="https://github.com/user-attachments/assets/09ac5f0b-edc4-41b5-addf-cbb1a32f573d" />
+
 
 **Benefits:**
 - Smaller file sizes with AV1 compression (up to 50% smaller than H.264)
 - Better streaming performance for users with limited bandwidth
 - Quality selection in the video player
-
-**Quick Start:**
-- Add `ENABLE_TRANSCODING=true` to your environment variables
-- CPU transcoding works out of the box - no additional setup required
-- Manage transcoding from the **Settings** page in the admin dashboard
 - Only videos larger than the target resolution are transcoded
 - Original files are never modified or deleted
+
+**How To Enable:**
+- Add `ENABLE_TRANSCODING=true` to your environment variables in your docker 
+- CPU transcoding works out of the box - no additional setup required
 
 **Environment Variables:**
 ```yaml
