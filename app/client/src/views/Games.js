@@ -19,7 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import { GameService } from '../services'
 import LoadingSpinner from '../components/misc/LoadingSpinner'
 
-const Games = ({ authenticated }) => {
+const Games = ({ authenticated, searchText }) => {
   const [games, setGames] = React.useState([])
   const [loading, setLoading] = React.useState(true)
   const [hoveredGame, setHoveredGame] = React.useState(null)
@@ -29,6 +29,14 @@ const Games = ({ authenticated }) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [deleteAssociatedVideos, setDeleteAssociatedVideos] = React.useState(false)
   const navigate = useNavigate()
+
+  // Filter games based on search text
+  const filteredGames = React.useMemo(() => {
+    if (!searchText) return games
+    return games.filter((game) =>
+      (game.name || '').toLowerCase().includes(searchText.toLowerCase())
+    )
+  }, [games, searchText])
 
   React.useEffect(() => {
     GameService.getGames()
@@ -59,6 +67,16 @@ const Games = ({ authenticated }) => {
     setEditMode(!editMode)
     if (editMode) {
       setSelectedGames(new Set())
+    }
+  }
+
+  const allSelected = filteredGames.length > 0 && selectedGames.size === filteredGames.length
+
+  const handleSelectAllToggle = () => {
+    if (allSelected) {
+      setSelectedGames(new Set())
+    } else {
+      setSelectedGames(new Set(filteredGames.map((g) => g.steamgriddb_id)))
     }
   }
 
@@ -117,18 +135,30 @@ const Games = ({ authenticated }) => {
       {/* Edit button and Delete button */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, gap: 2, alignItems: 'flex-start' }}>
         {editMode && (
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={<DeleteIcon />}
-            onClick={handleDeleteClick}
-            disabled={selectedGames.size === 0}
-            sx={{
-              borderRadius: '8px',
-            }}
-          >
-            Delete {selectedGames.size > 0 && `(${selectedGames.size})`}
-          </Button>
+          <Box sx={{ display: 'flex' }}>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleSelectAllToggle}
+              sx={{
+                borderRadius: '8px 0 0 8px',
+              }}
+            >
+              {allSelected ? 'Select None' : 'Select All'}
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<DeleteIcon />}
+              onClick={handleDeleteClick}
+              disabled={selectedGames.size === 0}
+              sx={{
+                borderRadius: '0 8px 8px 0',
+              }}
+            >
+              Delete {selectedGames.size > 0 && `(${selectedGames.size})`}
+            </Button>
+          </Box>
         )}
         {authenticated && (
           <IconButton
@@ -149,7 +179,7 @@ const Games = ({ authenticated }) => {
       </Box>
 
       <Grid container spacing={2}>
-        {[...games]
+        {[...filteredGames]
           .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }))
           .map((game) => {
           const isHovered = hoveredGame === game.steamgriddb_id

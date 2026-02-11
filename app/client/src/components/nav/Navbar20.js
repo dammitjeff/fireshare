@@ -44,9 +44,11 @@ import SnackbarAlert from '../alert/SnackbarAlert'
 import { getSetting, setSetting } from '../../common/utils'
 import SliderWrapper from '../misc/SliderWrapper'
 import GameScanStatus from './GameScanStatus'
+import TranscodingStatus from './TranscodingStatus'
 import FolderSuggestionInline from './FolderSuggestionInline'
 import DiskSpaceIndicator from './DiskSpaceIndicator'
 import { GameService } from '../../services'
+import UploadCard from '../admin/UploadCard'
 
 const drawerWidth = 240
 const minimizedDrawerWidth = 57
@@ -140,6 +142,7 @@ function Navbar20({
   page,
   collapsed = false,
   searchable = false,
+  searchPlaceholder = 'Search videos...',
   styleToggle = false,
   cardSlider = false,
   toolbar = true,
@@ -188,7 +191,6 @@ function Navbar20({
     if (style !== null) {
       setListStyle(style)
       setSetting('listStyle', style)
-      // fetchVideos()
     }
   }
   const handleCardSizeChange = (e, value) => {
@@ -204,6 +206,10 @@ function Navbar20({
     left: 0,
     top: 13,
   }))
+
+  const memoizedHandleAlert = React.useCallback((alert) => {
+    setAlert(alert)
+  }, [])
 
   // Load pending folder suggestions on mount
   React.useEffect(() => {
@@ -366,8 +372,11 @@ function Navbar20({
         </>
       )}
       <Divider />
+      <UploadCard  authenticated={authenticated} handleAlert={memoizedHandleAlert} mini={!open}  />
+
       <Box sx={{ width: '100%', bottom: 0, position: 'absolute' }}>
         <GameScanStatus open={open} onComplete={handleGameScanComplete} />
+        <TranscodingStatus open={open} />
         <FolderSuggestionInline
           open={open}
           suggestion={currentSuggestionFolder ? folderSuggestions[currentSuggestionFolder] : null}
@@ -532,7 +541,7 @@ function Navbar20({
             </IconButton>
             {searchable && (
               <Search
-                placeholder={`Search videos...`}
+                placeholder={searchPlaceholder}
                 searchHandler={(value) => setSearchText(value)}
                 sx={{ flexGrow: 1, minWidth: 0, ml: { xs: 0, sm: 2 } }}
               />

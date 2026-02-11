@@ -73,6 +73,66 @@ def remove_lock(path: Path):
         logger.debug(f"A lockfile has been removed at {str(lockfile)}")
         os.remove(lockfile)
 
+
+# Transcoding status file functions
+TRANSCODING_STATUS_FILE = "transcoding_status.json"
+
+def write_transcoding_status(data_path: Path, current: int, total: int, current_video: str = None, pid: int = None):
+    """
+    Writes the current transcoding progress to a status file.
+    Called by the CLI during transcoding to report progress.
+    If pid is provided, it will be included. Otherwise, preserves existing PID from the file.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+
+    # Preserve existing PID if not provided (so CLI updates don't lose the PID)
+    if pid is None:
+        existing = read_transcoding_status(data_path)
+        pid = existing.get('pid')
+
+    status = {
+        "is_running": True,
+        "current": current,
+        "total": total,
+        "current_video": current_video,
+        "pid": pid
+    }
+    try:
+        with open(status_file, 'w') as f:
+            json.dump(status, f)
+    except Exception as e:
+        logger.warning(f"Failed to write transcoding status: {e}")
+
+def read_transcoding_status(data_path: Path) -> dict:
+    """
+    Reads the current transcoding progress from the status file.
+    Returns default values if file doesn't exist or is invalid.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+    default_status = {"is_running": False, "current": 0, "total": 0, "current_video": None}
+
+    if not status_file.exists():
+        return default_status
+
+    try:
+        with open(status_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to read transcoding status: {e}")
+        return default_status
+
+def clear_transcoding_status(data_path: Path):
+    """
+    Removes the transcoding status file when transcoding completes or is cancelled.
+    """
+    status_file = data_path / TRANSCODING_STATUS_FILE
+    if status_file.exists():
+        try:
+            os.remove(status_file)
+        except Exception as e:
+            logger.warning(f"Failed to remove transcoding status file: {e}")
+
+
 def video_id(path: Path, mb=16):
     """
     Calculates the id of a video by using xxhash on the first 16mb (or the whole file if it's less than that)
@@ -410,72 +470,67 @@ def transcode_video(video_path, out_path):
     e = time.time()
     logger.info(f'Transcoded {str(out_path)} in {e-s}s')
 
-def _get_encoder_candidates(use_gpu=False):
+def _get_encoder_candidates(use_gpu=False, encoder_preference='auto'):
     """
     Get the list of encoder configurations to try in priority order.
-    
+
     Args:
         use_gpu: Whether to include GPU encoders in the list
-    
+        encoder_preference: 'auto', 'h264', or 'av1'
+
     Returns:
         list: List of encoder configurations to try in order
     """
-    # CPU encoder configurations (shared between GPU and CPU modes)
-    cpu_encoders = [
-        {
-            'name': 'AV1 CPU',
-            'video_codec': 'libaom-av1',
-            'audio_codec': 'libopus',
-            'audio_bitrate': '96k',
-            'extra_args': ['-cpu-used', '4', '-crf', '30', '-b:v', '0']
-        },
-        {
-            'name': 'H.264 CPU',
-            'video_codec': 'libx264',
-            'audio_codec': 'aac',
-            'audio_bitrate': '128k',
-            'extra_args': ['-preset', 'medium', '-crf', '23']
-        }
-    ]
-    
-    # Define encoder configurations to try in order
-    if use_gpu:
-        # GPU mode: try GPU encoders first, then fall back to CPU encoders
-        gpu_encoders = [
-            {
-                'name': 'AV1 NVENC',
-                'video_codec': 'av1_nvenc',
-                'audio_codec': 'libopus',
-                'audio_bitrate': '96k',
-                'extra_args': ['-preset', 'p4', '-cq:v', '30']
-            },
-            {
-                'name': 'H.264 NVENC',
-                'video_codec': 'h264_nvenc',
-                'audio_codec': 'aac',
-                'audio_bitrate': '128k',
-                'extra_args': ['-preset', 'p4', '-cq:v', '23']
-            }
-        ]
-        return gpu_encoders + cpu_encoders
-    else:
-        # CPU mode: only try CPU encoders
-        return cpu_encoders
+    h264_cpu = {
+        'name': 'H.264 CPU',
+        'video_codec': 'libx264',
+        'audio_codec': 'aac',
+        'audio_bitrate': '128k',
+        'extra_args': ['-preset', 'fast', '-crf', '23']
+    }
+    av1_cpu = {
+        'name': 'AV1 CPU',
+        'video_codec': 'libaom-av1',
+        'audio_codec': 'libopus',
+        'audio_bitrate': '96k',
+        'extra_args': ['-cpu-used', '4', '-crf', '30', '-b:v', '0']
+    }
+    h264_nvenc = {
+        'name': 'H.264 NVENC',
+        'video_codec': 'h264_nvenc',
+        'audio_codec': 'aac',
+        'audio_bitrate': '128k',
+        'extra_args': ['-preset', 'p4', '-cq:v', '23']
+    }
+    av1_nvenc = {
+        'name': 'AV1 NVENC',
+        'video_codec': 'av1_nvenc',
+        'audio_codec': 'libopus',
+        'audio_bitrate': '96k',
+        'extra_args': ['-preset', 'p4', '-cq:v', '30']
+    }
+
+    if encoder_preference == 'h264':
+        if use_gpu:
+            return [h264_nvenc, h264_cpu]
+        return [h264_cpu]
+    elif encoder_preference == 'av1':
+        if use_gpu:
+            return [av1_nvenc, av1_cpu]
+        return [av1_cpu]
+    else:  # auto - H.264 first (faster), AV1 as fallback
+        if use_gpu:
+            return [h264_nvenc, av1_nvenc, h264_cpu, av1_cpu]
+        return [h264_cpu, av1_cpu]
+
+def run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds=None):
+    """Run an FFmpeg command with timeout support."""
+    return sp.run(cmd, timeout=timeout_seconds)
+
 
 def _build_transcode_command(video_path, out_path, height, encoder):
-    """
-    Build an ffmpeg command for transcoding with the given encoder.
-    
-    Args:
-        video_path: Path to the source video
-        out_path: Path for the transcoded output
-        height: Target height in pixels
-        encoder: Encoder configuration dict
-    
-    Returns:
-        list: ffmpeg command as a list of arguments
-    """
-    cmd = ['ffmpeg', '-v', 'error', '-y', '-i', str(video_path)]
+    """Build an ffmpeg command for transcoding with the given encoder."""
+    cmd = ['ffmpeg', '-v', 'warning', '-stats', '-y', '-i', str(video_path)]
     cmd.extend(['-c:v', encoder['video_codec']])
     
     if 'extra_args' in encoder:
@@ -487,7 +542,7 @@ def _build_transcode_command(video_path, out_path, height, encoder):
     
     return cmd
 
-def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout_seconds=None):
+def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout_seconds=None, encoder_preference='auto'):
     """
     Transcode a video to a specific height (e.g., 720, 1080) while maintaining aspect ratio.
     
@@ -523,11 +578,14 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
         logger.error(f"Source video validation failed: {error_msg}")
         logger.warning("Skipping transcoding for this video due to file corruption or read errors")
         return (False, 'corruption')
-    
+
+    # Get video duration for progress logging
+    total_duration = get_video_duration(video_path) or 0
+
     # Calculate smart timeout based on video duration if not provided
     if timeout_seconds is None:
         timeout_seconds = calculate_transcode_timeout(video_path)
-    
+
     logger.info(f"Using transcode timeout of {timeout_seconds}s ({timeout_seconds/60:.1f} minutes)")
     
     # Determine output container based on codec
@@ -539,15 +597,15 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     if _working_encoder_cache[mode] is not None:
         encoder = _working_encoder_cache[mode]
         logger.debug(f"Using cached {mode.upper()} encoder: {encoder['name']}")
-        
+
         # Build ffmpeg command using the cached encoder
         logger.info(f"Transcoding video to {height}p using {encoder['name']}")
         cmd = _build_transcode_command(video_path, out_path, height, encoder)
-        
+
         logger.debug(f"$: {' '.join(cmd)}")
-        
+
         try:
-            result = sp.run(cmd, timeout=timeout_seconds)
+            result = run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds)
             if result.returncode == 0:
                 e = time.time()
                 logger.info(f'Transcoded {str(out_path)} to {height}p in {e-s:.2f}s')
@@ -662,19 +720,19 @@ def transcode_video_quality(video_path, out_path, height, use_gpu=False, timeout
     # When use_gpu=True, the candidate list includes GPU encoders first, then CPU encoders
     # as fallback, so CPU transcoding will be attempted automatically if GPU fails
     logger.info(f"Detecting working {mode.upper()} encoder by attempting transcode...")
-    encoders = _get_encoder_candidates(use_gpu)
+    encoders = _get_encoder_candidates(use_gpu, encoder_preference)
     
     last_exception = None
     for encoder in encoders:
         logger.info(f"Trying {encoder['name']}...")
-        
+
         # Build ffmpeg command
         cmd = _build_transcode_command(video_path, out_path, height, encoder)
-        
+
         logger.debug(f"$: {' '.join(cmd)}")
-        
+
         try:
-            result = sp.run(cmd, timeout=timeout_seconds)
+            result = run_ffmpeg_with_progress(cmd, total_duration, timeout_seconds)
             if result.returncode == 0:
                 # Success! Cache this encoder and return
                 logger.info(f"✓ {encoder['name']} works! Using it for all transcodes this session.")
@@ -919,7 +977,7 @@ def detect_game_from_filename(filename: str, steamgriddb_api_key: str = None, pa
     logger.debug(f"No game match found for filename: '{clean_name}'")
     return None
 
-def extract_date_from_filename(filename: str):
+def _extract_date_from_filename(filename: str):
     """
     Extract a recording date from a video filename using regex patterns.
 
@@ -973,3 +1031,105 @@ def extract_date_from_filename(filename: str):
             pass
 
     return None
+
+
+def _extract_date_from_metadata(file_path: Path):
+    """
+    Extract creation date from video file metadata using ffprobe.
+
+    Looks for common metadata tags like creation_time, date, etc.
+
+    Args:
+        file_path: Path to the video file
+
+    Returns:
+        datetime object if a valid date was found in metadata, None otherwise
+    """
+    try:
+        cmd = f'ffprobe -v quiet -print_format json -show_entries format_tags {file_path}'
+        logger.debug(f"$ {cmd}")
+        data = json.loads(sp.check_output(cmd.split()).decode('utf-8'))
+        
+        tags = data.get('format', {}).get('tags', {})
+        if not tags:
+            return None
+        
+        # Common metadata date tags (case-insensitive check)
+        date_tags = ['creation_time', 'date', 'date_recorded', 'recorded_date', 
+                     'com.apple.quicktime.creationdate', 'creation_date']
+        
+        for tag in date_tags:
+            # Try both original case and lowercase
+            value = tags.get(tag) or tags.get(tag.upper()) or tags.get(tag.lower())
+            if value:
+                # Try parsing various date formats
+                date_formats = [
+                    '%Y-%m-%dT%H:%M:%S.%fZ',  # ISO format with microseconds
+                    '%Y-%m-%dT%H:%M:%SZ',      # ISO format
+                    '%Y-%m-%dT%H:%M:%S.%f',    # ISO without Z
+                    '%Y-%m-%dT%H:%M:%S',       # ISO without Z or microseconds
+                    '%Y-%m-%d %H:%M:%S',       # Standard datetime
+                    '%Y-%m-%d',                # Date only
+                    '%Y:%m:%d %H:%M:%S',       # EXIF style
+                ]
+                
+                for fmt in date_formats:
+                    try:
+                        # Handle timezone offset (e.g., +00:00)
+                        clean_value = re.sub(r'[+-]\d{2}:\d{2}$', '', value)
+                        parsed = datetime.strptime(clean_value, fmt)
+                        if 2000 <= parsed.year <= datetime.now().year + 1:
+                            logger.debug(f"Extracted date {parsed} from metadata tag '{tag}'")
+                            return parsed
+                    except ValueError:
+                        continue
+        
+        return None
+    except Exception as ex:
+        logger.debug(f"Failed to extract date from metadata: {ex}")
+        return None
+
+
+def extract_date_from_file(file_path: Path):
+    """
+    Extract a recording date from a video file.
+
+    Tries the following sources in order:
+    1. Video metadata (creation_time, date tags via ffprobe)
+    2. Filename patterns (common screen recording software formats)
+    3. File creation timestamp
+
+    Args:
+        file_path: Path to the video file
+
+    Returns:
+        datetime object with the best available date, or None if file doesn't exist
+    """
+    file_path = Path(file_path)
+    
+    if not file_path.exists():
+        logger.warning(f"Cannot extract date from non-existent file: {file_path}")
+        return None
+    
+    # 1. Try metadata first (most accurate)
+    metadata_date = _extract_date_from_metadata(file_path)
+    if metadata_date:
+        logger.debug(f"Using metadata date for {file_path.name}: {metadata_date}")
+        return metadata_date
+    
+    # 2. Try filename patterns
+    filename_date = _extract_date_from_filename(file_path.name)
+    if filename_date:
+        logger.debug(f"Using filename date for {file_path.name}: {filename_date}")
+        return filename_date
+    
+    # 3. Fall back to file creation time
+    try:
+        # Use ctime on Unix (inode change time, often creation) or creation time on Windows
+        created_timestamp = os.path.getctime(file_path)
+        created_date = datetime.fromtimestamp(created_timestamp)
+        logger.debug(f"Using file creation date for {file_path.name}: {created_date}")
+        return created_date
+    except Exception as ex:
+        logger.warning(f"Failed to get file creation time for {file_path}: {ex}")
+        return None

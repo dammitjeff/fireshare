@@ -19,6 +19,13 @@ DEFAULT_CONFIG = {
   "rss_config": {
     "title": "Fireshare Feed",
     "description": "Latest videos from Fireshare"
+  },
+  "transcoding": {
+    "encoder_preference": "auto",
+    "auto_transcode": True,
+    "enable_480p": True,
+    "enable_720p": True,
+    "enable_1080p": True,
   }
 }
 
