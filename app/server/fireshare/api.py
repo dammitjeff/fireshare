@@ -13,13 +13,17 @@ from flask_cors import CORS
 from sqlalchemy.sql import text
 from pathlib import Path
 import requests
-from werkzeug.utils import secure_filename
+# from werkzeug.utils import secure_filename
 
 
 from . import db, logger, util
 from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
+
+def secure_filename(filename):
+    clean = re.sub(r"[/\\?%*:|\"<>\x7F\x00-\x1F]", "-", filename)
+    return clean
 
 def add_cache_headers(response, cache_key, max_age=604800):
     """Add cache headers for static assets (default: 7 days)."""
