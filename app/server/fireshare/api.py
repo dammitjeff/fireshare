@@ -13,7 +13,6 @@ from flask_cors import CORS
 from sqlalchemy.sql import text
 from pathlib import Path
 import requests
-# from werkzeug.utils import secure_filename
 
 
 from . import db, logger, util
