@@ -139,10 +139,13 @@ def _get_local_version():
         return _local_version_cache['version']
 
     try:
-        # Find package.json relative to this file: app/server/fireshare/api.py -> app/client/package.json
-        api_dir = Path(__file__).parent
-        package_json_path = api_dir.parent.parent / 'client' / 'package.json'
-
+        environment = current_app.config['ENVIRONMENT']
+        package_json_path = '/app/package.json'
+        if environment == "dev":
+            # Find package.json relative to this file: app/server/fireshare/api.py -> app/client/package.json
+            api_dir = Path(__file__).parent
+            package_json_path = api_dir.parent.parent / 'client' / 'package.json'
+            
         with open(package_json_path, 'r') as f:
             package_data = json.load(f)
             _local_version_cache['version'] = package_data.get('version', '')
