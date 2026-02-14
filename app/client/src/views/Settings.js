@@ -58,7 +58,7 @@ const Settings = ({ authenticated }) => {
   const [folderRules, setFolderRules] = React.useState([])
   const [deleteMenuAnchor, setDeleteMenuAnchor] = React.useState(null)
   const [deleteMenuRuleId, setDeleteMenuRuleId] = React.useState(null)
-  const [editingRuleId, setEditingRuleId] = React.useState(null)
+  const [editingFolder, setEditingFolder] = React.useState(null)
   const isDiscordUsed = discordUrl.trim() !== ''
 
   const fetchRunningStatus = async () => {
@@ -233,7 +233,7 @@ const Settings = ({ authenticated }) => {
       await GameService.createFolderRule(folderPath, game.id)
       const rulesRes = await GameService.getFolderRules()
       setFolderRules(rulesRes.data)
-      setEditingRuleId(null)
+      setEditingFolder(null)
       setAlert({
         open: true,
         type: 'success',
@@ -790,13 +790,13 @@ const Settings = ({ authenticated }) => {
                 </Box>
                 {folderRules.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
-                    No folder rules yet. Apply a folder suggestion to create one.
+                    No folders found.
                   </Typography>
                 ) : (
                   <Stack spacing={1}>
-                    {folderRules.map((rule) => (
+                    {folderRules.map((item) => (
                       <Box
-                        key={rule.id}
+                        key={item.folder_path}
                         sx={{
                           display: 'flex',
                           alignItems: 'center',
@@ -810,26 +810,29 @@ const Settings = ({ authenticated }) => {
                           <FolderIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
                           <Box sx={{ flex: 1 }}>
                             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                              {rule.folder_path}
+                              {item.folder_path}
+                              <Typography component="span" variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                                ({item.video_count} videos)
+                              </Typography>
                             </Typography>
-                            {editingRuleId === rule.id ? (
+                            {editingFolder === item.folder_path ? (
                               <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                 <Box sx={{ flex: 1 }}>
                                   <GameSearch
                                     placeholder="Search for a game..."
-                                    onGameLinked={(game) => handleUpdateFolderRule(rule.folder_path, game)}
+                                    onGameLinked={(game) => handleUpdateFolderRule(item.folder_path, game)}
                                     onError={() => setAlert({ open: true, type: 'error', message: 'Failed to search games' })}
                                   />
                                 </Box>
                                 <IconButton
                                   size="small"
-                                  onClick={() => setEditingRuleId(null)}
+                                  onClick={() => setEditingFolder(null)}
                                   sx={{ color: 'rgba(255, 255, 255, 0.5)' }}
                                 >
                                   <CloseIcon fontSize="small" />
                                 </IconButton>
                               </Box>
-                            ) : (
+                            ) : item.rule ? (
                               <Typography
                                 variant="caption"
                                 sx={{
@@ -837,23 +840,49 @@ const Settings = ({ authenticated }) => {
                                   cursor: 'pointer',
                                   '&:hover': { textDecoration: 'underline' },
                                 }}
-                                onClick={() => setEditingRuleId(rule.id)}
+                                onClick={() => setEditingFolder(item.folder_path)}
                               >
-                                → {rule.game?.name || 'Unknown game'}
+                                → {item.rule.game?.name || 'Unknown game'}
+                              </Typography>
+                            ) : item.suggested_game ? (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  color: 'warning.main',
+                                  cursor: 'pointer',
+                                  '&:hover': { textDecoration: 'underline' },
+                                }}
+                                onClick={() => handleUpdateFolderRule(item.folder_path, item.suggested_game)}
+                              >
+                                Suggested: {item.suggested_game.name} (click to apply)
+                              </Typography>
+                            ) : (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  color: 'text.secondary',
+                                  cursor: 'pointer',
+                                  '&:hover': { textDecoration: 'underline' },
+                                }}
+                                onClick={() => setEditingFolder(item.folder_path)}
+                              >
+                                No game linked - click to add
                               </Typography>
                             )}
                           </Box>
                         </Box>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={(e) => {
-                            setDeleteMenuAnchor(e.currentTarget)
-                            setDeleteMenuRuleId(rule.id)
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                        {item.rule && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => {
+                              setDeleteMenuAnchor(e.currentTarget)
+                              setDeleteMenuRuleId(item.rule.id)
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </Box>
                     ))}
                   </Stack>

@@ -643,9 +643,55 @@ def dismiss_folder_suggestion(folder_name):
 @api.route('/api/folder-rules')
 @login_required
 def get_folder_rules():
-    """Get all folder rules"""
-    rules = FolderRule.query.all()
-    return jsonify([rule.json() for rule in rules])
+    """Get all folders with their rules and suggested games based on linked videos"""
+    from collections import Counter
+    from fireshare.constants import DEFAULT_CONFIG
+
+    # Skip upload folders
+    upload_folders = {
+        DEFAULT_CONFIG['app_config']['admin_upload_folder_name'].lower(),
+        DEFAULT_CONFIG['app_config']['public_upload_folder_name'].lower(),
+    }
+
+    # Get existing rules keyed by folder
+    rules = {rule.folder_path: rule for rule in FolderRule.query.all()}
+
+    # Build folder -> video_ids and video -> game_id maps
+    folders = {}
+    video_to_game = {link.video_id: link.game_id for link in VideoGameLink.query.all()}
+    games = {g.id: g for g in GameMetadata.query.all()}
+
+    for video in Video.query.all():
+        parts = video.path.replace('\\', '/').split('/')
+        if len(parts) > 1:
+            folder = parts[0]
+            if folder.lower() in upload_folders:
+                continue
+            if folder not in folders:
+                folders[folder] = []
+            folders[folder].append(video.video_id)
+
+    result = []
+    for folder in sorted(folders.keys()):
+        video_ids = folders[folder]
+        rule = rules.get(folder)
+
+        # Find most common game among linked videos in this folder
+        game_counts = Counter(video_to_game[vid] for vid in video_ids if vid in video_to_game)
+        suggested_game = None
+        if game_counts:
+            top_game = games.get(game_counts.most_common(1)[0][0])
+            if top_game:
+                suggested_game = top_game.json()
+
+        result.append({
+            'folder_path': folder,
+            'rule': rule.json() if rule else None,
+            'suggested_game': suggested_game,
+            'video_count': len(video_ids)
+        })
+
+    return jsonify(result)
 
 
 @api.route('/api/folder-rules', methods=['POST'])
