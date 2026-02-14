@@ -8,7 +8,10 @@ import {
   FormControl,
   FormControlLabel,
   Grid,
+  IconButton,
   InputLabel,
+  Menu,
+  MenuItem,
   NativeSelect,
   Stack,
   TextField,
@@ -21,12 +24,16 @@ import SensorsIcon from '@mui/icons-material/Sensors'
 import RssFeedIcon from '@mui/icons-material/RssFeed'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
+import DeleteIcon from '@mui/icons-material/Delete'
+import FolderIcon from '@mui/icons-material/Folder'
+import CloseIcon from '@mui/icons-material/Close'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
-import { ConfigService, VideoService } from '../services'
+import { ConfigService, VideoService, GameService } from '../services'
 import LightTooltip from '../components/misc/LightTooltip'
+import GameSearch from '../components/game/GameSearch'
 
 import _ from 'lodash'
 import WarningService from "../services/WarningService";
@@ -48,6 +55,10 @@ const Settings = ({ authenticated }) => {
     gpu_enabled: false,
     is_running: false,
   })
+  const [folderRules, setFolderRules] = React.useState([])
+  const [deleteMenuAnchor, setDeleteMenuAnchor] = React.useState(null)
+  const [deleteMenuRuleId, setDeleteMenuRuleId] = React.useState(null)
+  const [editingRuleId, setEditingRuleId] = React.useState(null)
   const isDiscordUsed = discordUrl.trim() !== ''
 
   const fetchRunningStatus = async () => {
@@ -62,18 +73,23 @@ const Settings = ({ authenticated }) => {
   React.useEffect(() => {
     async function fetch() {
       try {
-        const conf = (await ConfigService.getAdminConfig()).data
-        setConfig(conf)
-        setUpdatedConfig(conf)
+        // Fetch folder rules in parallel with config
+        const [conf, rulesRes] = await Promise.all([
+          ConfigService.getAdminConfig(),
+          GameService.getFolderRules(),
+        ])
+        setConfig(conf.data)
+        setUpdatedConfig(conf.data)
+        setFolderRules(rulesRes.data)
         // Set transcoding enabled/gpu from config (only changes on container restart)
-        if (conf.transcoding_status) {
+        if (conf.data.transcoding_status) {
           setTranscodingStatus((prev) => ({
             ...prev,
-            enabled: conf.transcoding_status.enabled,
-            gpu_enabled: conf.transcoding_status.gpu_enabled,
+            enabled: conf.data.transcoding_status.enabled,
+            gpu_enabled: conf.data.transcoding_status.gpu_enabled,
           }))
           // Only check is_running if transcoding is enabled
-          if (conf.transcoding_status.enabled) {
+          if (conf.data.transcoding_status.enabled) {
             await fetchRunningStatus()
           }
         }
@@ -184,6 +200,50 @@ const Settings = ({ authenticated }) => {
         open: true,
         type: 'error',
         message: err.response?.data?.error || 'Failed to scan videos for dates',
+      })
+    }
+  }
+
+  const handleDeleteFolderRule = async (unlinkVideos = false) => {
+    const ruleId = deleteMenuRuleId
+    setDeleteMenuAnchor(null)
+    setDeleteMenuRuleId(null)
+    if (!ruleId) return
+
+    try {
+      await GameService.deleteFolderRule(ruleId, unlinkVideos)
+      const rulesRes = await GameService.getFolderRules()
+      setFolderRules(rulesRes.data)
+      setAlert({
+        open: true,
+        type: 'success',
+        message: unlinkVideos ? 'Folder rule deleted and videos unlinked' : 'Folder rule deleted',
+      })
+    } catch (err) {
+      setAlert({
+        open: true,
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to delete folder rule',
+      })
+    }
+  }
+
+  const handleUpdateFolderRule = async (folderPath, game) => {
+    try {
+      await GameService.createFolderRule(folderPath, game.id)
+      const rulesRes = await GameService.getFolderRules()
+      setFolderRules(rulesRes.data)
+      setEditingRuleId(null)
+      setAlert({
+        open: true,
+        type: 'success',
+        message: `Updated: ${folderPath} → ${game.name}`,
+      })
+    } catch (err) {
+      setAlert({
+        open: true,
+        type: 'error',
+        message: err.response?.data?.error || 'Failed to update folder rule',
       })
     }
   }
@@ -719,6 +779,100 @@ const Settings = ({ authenticated }) => {
                 >
                   Copy RSS Feed URL
                 </Button>
+                <Divider />
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 18 }}>
+                    Folder Rules
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Clips in these folders will be linked to the selected game. Modify these if your setup is not detected automatically.
+                  </Typography>
+                </Box>
+                {folderRules.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                    No folder rules yet. Apply a folder suggestion to create one.
+                  </Typography>
+                ) : (
+                  <Stack spacing={1}>
+                    {folderRules.map((rule) => (
+                      <Box
+                        key={rule.id}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          p: 1.5,
+                          borderRadius: 2,
+                          background: 'rgba(255, 255, 255, 0.05)',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1 }}>
+                          <FolderIcon sx={{ color: 'rgba(255, 255, 255, 0.7)' }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {rule.folder_path}
+                            </Typography>
+                            {editingRuleId === rule.id ? (
+                              <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <Box sx={{ flex: 1 }}>
+                                  <GameSearch
+                                    placeholder="Search for a game..."
+                                    onGameLinked={(game) => handleUpdateFolderRule(rule.folder_path, game)}
+                                    onError={() => setAlert({ open: true, type: 'error', message: 'Failed to search games' })}
+                                  />
+                                </Box>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setEditingRuleId(null)}
+                                  sx={{ color: 'rgba(255, 255, 255, 0.5)' }}
+                                >
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            ) : (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  color: 'primary.main',
+                                  cursor: 'pointer',
+                                  '&:hover': { textDecoration: 'underline' },
+                                }}
+                                onClick={() => setEditingRuleId(rule.id)}
+                              >
+                                → {rule.game?.name || 'Unknown game'}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={(e) => {
+                            setDeleteMenuAnchor(e.currentTarget)
+                            setDeleteMenuRuleId(rule.id)
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Stack>
+                )}
+                <Menu
+                  anchorEl={deleteMenuAnchor}
+                  open={Boolean(deleteMenuAnchor)}
+                  onClose={() => {
+                    setDeleteMenuAnchor(null)
+                    setDeleteMenuRuleId(null)
+                  }}
+                >
+                  <MenuItem onClick={() => handleDeleteFolderRule(false)}>
+                    Delete rule only
+                  </MenuItem>
+                  <MenuItem onClick={() => handleDeleteFolderRule(true)}>
+                    Delete rule & unlink videos
+                  </MenuItem>
+                </Menu>
                 <Divider />
                 <Button
                   variant="contained"
