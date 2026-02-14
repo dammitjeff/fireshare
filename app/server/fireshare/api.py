@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 
 
 from . import db, logger, util
-from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink
+from .models import User, Video, VideoInfo, VideoView, GameMetadata, VideoGameLink, FolderRule
 from .constants import SUPPORTED_FILE_TYPES
 from datetime import datetime
 
@@ -639,6 +639,73 @@ def dismiss_folder_suggestion(folder_name):
 
     logger.info(f"Dismissed folder suggestion: {folder_name} ({video_count} videos)")
     return jsonify({'dismissed': True})
+
+
+@api.route('/api/folder-rules')
+@login_required
+def get_folder_rules():
+    """Get all folder rules"""
+    rules = FolderRule.query.all()
+    return jsonify([rule.json() for rule in rules])
+
+
+@api.route('/api/folder-rules', methods=['POST'])
+@login_required
+def create_folder_rule():
+    """Create a folder rule"""
+    data = request.get_json()
+
+    if not data or not data.get('folder_path') or not data.get('game_id'):
+        return jsonify({'error': 'folder_path and game_id are required'}), 400
+
+    # Check if rule already exists for this folder
+    existing = FolderRule.query.filter_by(folder_path=data['folder_path']).first()
+    if existing:
+        # Update existing rule
+        existing.game_id = data['game_id']
+        db.session.commit()
+        logger.info(f"Updated folder rule: {data['folder_path']} -> game {data['game_id']}")
+        return jsonify(existing.json()), 200
+
+    # Create new rule
+    rule = FolderRule(
+        folder_path=data['folder_path'],
+        game_id=data['game_id']
+    )
+    db.session.add(rule)
+    db.session.commit()
+
+    logger.info(f"Created folder rule: {data['folder_path']} -> game {data['game_id']}")
+    return jsonify(rule.json()), 201
+
+
+@api.route('/api/folder-rules/<int:rule_id>', methods=['DELETE'])
+@login_required
+def delete_folder_rule(rule_id):
+    """Delete a folder rule, optionally unlinking videos"""
+    rule = FolderRule.query.get(rule_id)
+    if not rule:
+        return jsonify({'error': 'Folder rule not found'}), 404
+
+    unlink_videos = request.args.get('unlink_videos', 'false').lower() == 'true'
+    unlinked_count = 0
+
+    if unlink_videos:
+        # Find videos in this folder and unlink them from the game
+        videos = Video.query.filter(Video.path.like(f"{rule.folder_path}/%")).all()
+        for video in videos:
+            link = VideoGameLink.query.filter_by(video_id=video.video_id, game_id=rule.game_id).first()
+            if link:
+                db.session.delete(link)
+                unlinked_count += 1
+
+    folder_path = rule.folder_path
+    db.session.delete(rule)
+    db.session.commit()
+
+    logger.info(f"Deleted folder rule: {folder_path} (unlinked {unlinked_count} videos)")
+    return jsonify({'deleted': True, 'unlinked_count': unlinked_count})
+
 
 @api.route('/api/manual/scan-games')
 @login_required
