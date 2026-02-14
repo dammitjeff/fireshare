@@ -725,25 +725,32 @@ def create_folder_rule():
         logger.info(f"Created folder rule: {folder_path} -> game {game_id}")
         is_new = True
 
-    # Backfill: tag existing untagged videos in this folder
+    # Tag ALL videos in this folder to the new game (update existing + create new)
     videos_in_folder = Video.query.filter(Video.path.like(f"{folder_path}/%")).all()
-    linked_video_ids = {link.video_id for link in VideoGameLink.query.all()}
-    backfilled = 0
+    video_ids = [v.video_id for v in videos_in_folder]
+    existing_links = {link.video_id: link for link in VideoGameLink.query.filter(VideoGameLink.video_id.in_(video_ids)).all()}
+
+    updated = 0
+    created = 0
 
     for video in videos_in_folder:
-        if video.video_id not in linked_video_ids:
+        if video.video_id in existing_links:
+            # Update existing link to new game
+            existing_links[video.video_id].game_id = game_id
+            updated += 1
+        else:
+            # Create new link
             link = VideoGameLink(
                 video_id=video.video_id,
                 game_id=game_id,
                 created_at=datetime.utcnow()
             )
             db.session.add(link)
-            backfilled += 1
-            logger.info(f"[Backfill] Tagged {video.video_id} to game {game_id}")
+            created += 1
 
-    if backfilled:
+    if updated or created:
         db.session.commit()
-        logger.info(f"Backfilled {backfilled} video(s) in folder '{folder_path}'")
+        logger.info(f"Folder '{folder_path}': updated {updated}, created {created} link(s) to game {game_id}")
 
     # Clear individual suggestions for videos in this folder only
     suggestions = _load_suggestions()
@@ -759,7 +766,7 @@ def create_folder_rule():
         logger.info(f"Cleared {cleared_suggestions} individual suggestion(s) for folder '{folder_path}'")
 
     response = rule.json()
-    response['backfilled'] = backfilled
+    response['backfilled'] = updated + created
     response['cleared_suggestions'] = cleared_suggestions
     return jsonify(response), 201 if is_new else 200
 
