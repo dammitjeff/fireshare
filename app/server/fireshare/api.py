@@ -560,9 +560,8 @@ def reset_database():
 def manual_scan():
     if not current_app.config["ENVIRONMENT"] == 'production':
         return Response(response='You must be running in production for this task to work.', status=400)
-    else:
-        current_app.logger.info(f"Executed manual scan")
-        Popen(["fireshare", "bulk-import"], shell=False)
+    current_app.logger.info(f"Executed manual scan")
+    Popen(["fireshare", "bulk-import"], shell=False)
     return Response(status=200)
 
 @api.route('/api/manual/scan-dates')
@@ -652,31 +651,71 @@ def get_folder_rules():
 @api.route('/api/folder-rules', methods=['POST'])
 @login_required
 def create_folder_rule():
-    """Create a folder rule"""
+    """Create a folder rule and backfill existing untagged videos"""
+    from .cli import _load_suggestions, _save_suggestions
     data = request.get_json()
 
     if not data or not data.get('folder_path') or not data.get('game_id'):
         return jsonify({'error': 'folder_path and game_id are required'}), 400
 
+    folder_path = data['folder_path']
+    game_id = data['game_id']
+
     # Check if rule already exists for this folder
-    existing = FolderRule.query.filter_by(folder_path=data['folder_path']).first()
+    existing = FolderRule.query.filter_by(folder_path=folder_path).first()
     if existing:
-        # Update existing rule
-        existing.game_id = data['game_id']
+        existing.game_id = game_id
         db.session.commit()
-        logger.info(f"Updated folder rule: {data['folder_path']} -> game {data['game_id']}")
-        return jsonify(existing.json()), 200
+        logger.info(f"Updated folder rule: {folder_path} -> game {game_id}")
+        rule = existing
+        is_new = False
+    else:
+        rule = FolderRule(
+            folder_path=folder_path,
+            game_id=game_id
+        )
+        db.session.add(rule)
+        db.session.commit()
+        logger.info(f"Created folder rule: {folder_path} -> game {game_id}")
+        is_new = True
 
-    # Create new rule
-    rule = FolderRule(
-        folder_path=data['folder_path'],
-        game_id=data['game_id']
-    )
-    db.session.add(rule)
-    db.session.commit()
+    # Backfill: tag existing untagged videos in this folder
+    videos_in_folder = Video.query.filter(Video.path.like(f"{folder_path}/%")).all()
+    linked_video_ids = {link.video_id for link in VideoGameLink.query.all()}
+    backfilled = 0
 
-    logger.info(f"Created folder rule: {data['folder_path']} -> game {data['game_id']}")
-    return jsonify(rule.json()), 201
+    for video in videos_in_folder:
+        if video.video_id not in linked_video_ids:
+            link = VideoGameLink(
+                video_id=video.video_id,
+                game_id=game_id,
+                created_at=datetime.utcnow()
+            )
+            db.session.add(link)
+            backfilled += 1
+            logger.info(f"[Backfill] Tagged {video.video_id} to game {game_id}")
+
+    if backfilled:
+        db.session.commit()
+        logger.info(f"Backfilled {backfilled} video(s) in folder '{folder_path}'")
+
+    # Clear individual suggestions for videos in this folder only
+    suggestions = _load_suggestions()
+    cleared_suggestions = 0
+    video_ids_in_folder = {v.video_id for v in videos_in_folder}
+    for video_id in list(suggestions.keys()):
+        if video_id in video_ids_in_folder and video_id != '_folders':
+            del suggestions[video_id]
+            cleared_suggestions += 1
+            logger.info(f"[Backfill] Cleared suggestion for {video_id}")
+    if cleared_suggestions:
+        _save_suggestions(suggestions)
+        logger.info(f"Cleared {cleared_suggestions} individual suggestion(s) for folder '{folder_path}'")
+
+    response = rule.json()
+    response['backfilled'] = backfilled
+    response['cleared_suggestions'] = cleared_suggestions
+    return jsonify(response), 201 if is_new else 200
 
 
 @api.route('/api/folder-rules/<int:rule_id>', methods=['DELETE'])
