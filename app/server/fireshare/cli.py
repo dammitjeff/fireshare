@@ -56,6 +56,14 @@ def save_game_suggestion(video_id, suggestion):
     suggestions[video_id] = suggestion
     _save_suggestions(suggestions)
 
+def save_game_suggestions_batch(new_suggestions):
+    """Save multiple game suggestions at once"""
+    if not new_suggestions:
+        return
+    suggestions = _load_suggestions()
+    suggestions.update(new_suggestions)
+    _save_suggestions(suggestions)
+
 def delete_game_suggestion(video_id):
     """Delete a game suggestion for a video"""
     suggestions = _load_suggestions()
@@ -298,6 +306,7 @@ def scan_videos(root):
         if new_videos:
             videos_needing_detection = [nv for nv in new_videos if nv.video_id not in auto_tagged]
             logger.info(f"Running game detection for {len(videos_needing_detection)} new video(s)...")
+            pending_suggestions = {}
             for nv in videos_needing_detection:
                 filename = Path(nv.path).stem
                 logger.info(f"[Game Detection] Video: {nv.video_id}, Path: {nv.path}, Filename: {filename}")
@@ -306,12 +315,16 @@ def scan_videos(root):
                 if detected_game:
                     logger.info(f"[Game Detection] Result: {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f}, source: {detected_game['source']})")
                     if detected_game['confidence'] >= 0.65:
-                        save_game_suggestion(nv.video_id, detected_game)
-                        logger.info(f"[Game Detection] Saved suggestion for {nv.video_id}")
+                        pending_suggestions[nv.video_id] = detected_game
+                        logger.info(f"[Game Detection] Queued suggestion for {nv.video_id}")
                     else:
                         logger.info(f"[Game Detection] Confidence too low, skipping suggestion")
                 else:
                     logger.info(f"[Game Detection] No match found for {nv.video_id}")
+            # Batch save all suggestions at once
+            if pending_suggestions:
+                save_game_suggestions_batch(pending_suggestions)
+                logger.info(f"[Game Detection] Saved {len(pending_suggestions)} suggestion(s) in batch")
 
         existing_videos = Video.query.filter_by(available=True).all()
         logger.info(f"Verifying {len(existing_videos):,} video files still exist...")

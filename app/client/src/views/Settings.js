@@ -24,7 +24,7 @@ import SensorsIcon from '@mui/icons-material/Sensors'
 import RssFeedIcon from '@mui/icons-material/RssFeed'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
-import DeleteIcon from '@mui/icons-material/Delete'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import FolderIcon from '@mui/icons-material/Folder'
 import CloseIcon from '@mui/icons-material/Close'
 import VisibilityIcon from '@mui/icons-material/Visibility'
@@ -874,13 +874,13 @@ const Settings = ({ authenticated }) => {
                         {item.rule && (
                           <IconButton
                             size="small"
-                            color="error"
                             onClick={(e) => {
                               setDeleteMenuAnchor(e.currentTarget)
                               setDeleteMenuRuleId(item.rule.id)
                             }}
+                            sx={{ color: 'rgba(255, 255, 255, 0.5)' }}
                           >
-                            <DeleteIcon fontSize="small" />
+                            <MoreVertIcon fontSize="small" />
                           </IconButton>
                         )}
                       </Box>

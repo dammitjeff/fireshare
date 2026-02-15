@@ -783,13 +783,13 @@ def delete_folder_rule(rule_id):
     unlinked_count = 0
 
     if unlink_videos:
-        # Find videos in this folder and unlink them from the game
-        videos = Video.query.filter(Video.path.like(f"{rule.folder_path}/%")).all()
-        for video in videos:
-            link = VideoGameLink.query.filter_by(video_id=video.video_id, game_id=rule.game_id).first()
-            if link:
-                db.session.delete(link)
-                unlinked_count += 1
+        # Batch query: get only video IDs in folder, then delete matching links in one query
+        video_ids = [v[0] for v in db.session.query(Video.video_id).filter(Video.path.like(f"{rule.folder_path}/%")).all()]
+        if video_ids:
+            unlinked_count = VideoGameLink.query.filter(
+                VideoGameLink.video_id.in_(video_ids),
+                VideoGameLink.game_id == rule.game_id
+            ).delete(synchronize_session=False)
 
     folder_path = rule.folder_path
     db.session.delete(rule)
@@ -804,7 +804,7 @@ def delete_folder_rule(rule_id):
 def manual_scan_games():
     """Start game scan in background thread"""
     from fireshare import util
-    from fireshare.cli import save_game_suggestion, _load_suggestions
+    from fireshare.cli import save_game_suggestions_batch, _load_suggestions
 
     # Check if already running
     with _game_scan_state['lock']:
@@ -921,6 +921,7 @@ def manual_scan_games():
                     _save_suggestions(existing_suggestions)
 
                 # Process remaining individual videos (not in folder suggestions and no existing suggestion)
+                pending_suggestions = {}
                 for i, video in enumerate(videos_needing_suggestions):
                     _game_scan_state['current'] = i + 1
 
@@ -931,10 +932,15 @@ def manual_scan_games():
                     detected_game = util.detect_game_from_filename(filename, steamgriddb_api_key, path=video.path)
 
                     if detected_game and detected_game['confidence'] >= 0.65:
-                        save_game_suggestion(video.video_id, detected_game)
+                        pending_suggestions[video.video_id] = detected_game
                         suggestions_created += 1
                         _game_scan_state['suggestions_created'] = suggestions_created
-                        logger.info(f"Created game suggestion for video {video.video_id}: {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f}, source: {detected_game['source']})")
+                        logger.info(f"Queued game suggestion for video {video.video_id}: {detected_game['game_name']} (confidence: {detected_game['confidence']:.2f}, source: {detected_game['source']})")
+
+                # Batch save all suggestions at once
+                if pending_suggestions:
+                    save_game_suggestions_batch(pending_suggestions)
+                    logger.info(f"Saved {len(pending_suggestions)} suggestion(s) in batch")
 
                 logger.info(f"Game scan complete: {suggestions_created} suggestions created from {len(unlinked_videos)} unlinked videos")
 
