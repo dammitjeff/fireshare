@@ -1,5 +1,5 @@
 import json
-import os, re, signal, string
+import os, re, signal, string, sys
 import shutil
 import random
 import logging
@@ -2958,6 +2958,156 @@ def bulk_remove_tag():
 
     db.session.commit()
     return jsonify({"removed": removed}), 200
+
+
+@api.route('/api/admin/backup/export', methods=["GET"])
+@login_required
+def export_backup():
+    import zipfile
+    import tempfile
+
+    paths = current_app.config['PATHS']
+    data_dir = paths['data']
+    processed_dir = Path(current_app.config['PROCESSED_DIRECTORY'])
+
+    # Runtime-only files that should never be backed up
+    EXCLUDE_NAMES = {'jobs.sqlite', 'db.sqlite-wal', 'db.sqlite-shm', 'db.sqlite.importing'}
+
+    if not (data_dir / 'db.sqlite').exists():
+        return jsonify({'message': 'Database not found'}), 500
+
+    # Flush WAL to ensure the copied db reflects a consistent committed state
+    with db.engine.connect() as conn:
+        conn.execute(text('PRAGMA wal_checkpoint(FULL)'))
+
+    tmp_dir = processed_dir / 'tmp'
+    tmp_dir.mkdir(exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=tmp_dir, suffix='.zip')
+    os.close(tmp_fd)
+
+    try:
+        with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # 1. Entire /data directory (excluding runtime files)
+            for item in data_dir.rglob('*'):
+                if not item.is_file():
+                    continue
+                if item.name in EXCLUDE_NAMES or item.suffix == '.lock':
+                    continue
+                zf.write(item, 'data/' + str(item.relative_to(data_dir)))
+
+            # 2. Video posters (live in /processed, not /data)
+            derived_dir = processed_dir / 'derived'
+            if derived_dir.exists():
+                for video_dir in derived_dir.iterdir():
+                    if not video_dir.is_dir():
+                        continue
+                    custom_poster = video_dir / 'custom_poster.webp'
+                    if custom_poster.exists():
+                        zf.write(custom_poster, f'custom_posters/{video_dir.name}.webp')
+                    poster = video_dir / 'poster.jpg'
+                    if poster.exists():
+                        zf.write(poster, f'posters/{video_dir.name}.jpg')
+
+        filename = f'fireshare_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'
+        return send_file(tmp_path, mimetype='application/zip', as_attachment=True,
+                         download_name=filename, max_age=0)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@api.route('/api/admin/backup/import', methods=["POST"])
+@login_required
+def import_backup():
+    import io
+    import zipfile
+
+    if 'file' not in request.files:
+        return jsonify({'message': 'No file provided'}), 400
+
+    file = request.files['file']
+    if not (file.filename or '').endswith('.zip'):
+        return jsonify({'message': 'File must be a .zip archive'}), 400
+
+    paths = current_app.config['PATHS']
+    data_dir = paths['data']
+    processed_dir = Path(current_app.config['PROCESSED_DIRECTORY'])
+
+    try:
+        zip_bytes = io.BytesIO(file.read())
+        with zipfile.ZipFile(zip_bytes, 'r') as zf:
+            names = zf.namelist()
+
+            if 'data/db.sqlite' not in names:
+                return jsonify({'message': 'Invalid backup: db.sqlite not found in archive'}), 400
+
+            # 1. Atomically replace database first, then extract remaining /data files
+            staging_path = data_dir / 'db.sqlite.importing'
+            with zf.open('data/db.sqlite') as src, open(staging_path, 'wb') as dst:
+                dst.write(src.read())
+            os.replace(staging_path, data_dir / 'db.sqlite')
+            db.engine.dispose()
+
+            # 2. Run migrations to bring schema up to date
+            from flask_migrate import upgrade as db_upgrade
+            db_upgrade()
+
+            # 3. Reset transcode flags
+            db.session.execute(text(
+                'UPDATE video_info SET has_480p = 0, has_720p = 0, has_1080p = 0'
+            ))
+            db.session.commit()
+
+            # 4. Restore remaining /data files
+            for entry in names:
+                if not entry.startswith('data/') or entry.endswith('/'):
+                    continue
+                rel = entry[len('data/'):]
+                if rel == 'db.sqlite':
+                    continue
+                dest = data_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(entry) as src, open(dest, 'wb') as dst:
+                    dst.write(src.read())
+
+            # 5. Restore posters in /processed
+            for entry in names:
+                if entry.startswith('custom_posters/') and entry.endswith('.webp'):
+                    video_id = Path(entry).stem
+                    dest_dir = processed_dir / 'derived' / video_id
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    with zf.open(entry) as src, open(dest_dir / 'custom_poster.webp', 'wb') as dst:
+                        dst.write(src.read())
+                elif entry.startswith('posters/') and entry.endswith('.jpg'):
+                    video_id = Path(entry).stem
+                    dest_dir = processed_dir / 'derived' / video_id
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    with zf.open(entry) as src, open(dest_dir / 'poster.jpg', 'wb') as dst:
+                        dst.write(src.read())
+
+    except zipfile.BadZipFile:
+        return jsonify({'message': 'Invalid or corrupted ZIP file'}), 400
+    except Exception as e:
+        current_app.logger.error(f'Backup import failed: {e}')
+        return jsonify({'message': f'Import failed: {str(e)}'}), 500
+
+    return jsonify({'message': 'Backup restored successfully'}), 200
+
+
+@api.route('/api/admin/restart', methods=["POST"])
+@login_required
+def restart_app():
+    import signal as _signal
+    def _do_restart():
+        time.sleep(3)
+        try:
+            os.kill(1, _signal.SIGTERM)  # Docker: kill gunicorn master (PID 1), restart policy brings it back
+        except PermissionError:
+            os.execv(sys.executable, sys.argv)  # Dev: re-exec current process in-place
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({'message': 'Restarting...'}), 200
 
 
 @api.after_request

@@ -4,6 +4,12 @@ import {
   Button,
   Checkbox,
   Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
   FormControl,
   FormControlLabel,
@@ -21,6 +27,7 @@ import {
   Typography,
 } from '@mui/material'
 import SnackbarAlert from '../components/alert/SnackbarAlert'
+import { dialogPaperSx, dialogTitleSx } from '../common/modalStyles'
 import SaveIcon from '@mui/icons-material/Save'
 import SensorsIcon from '@mui/icons-material/Sensors'
 import RssFeedIcon from '@mui/icons-material/RssFeed'
@@ -33,7 +40,10 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
+import BackupIcon from '@mui/icons-material/Backup'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { ConfigService, VideoService, GameService } from '../services'
+import BackupService from '../services/BackupService'
 import { setSetting } from '../common/utils'
 import LightTooltip from '../components/misc/LightTooltip'
 import GameSearch from '../components/game/GameSearch'
@@ -64,6 +74,13 @@ const Settings = () => {
   const [deleteMenuAnchor, setDeleteMenuAnchor] = React.useState(null)
   const [deleteMenuRuleId, setDeleteMenuRuleId] = React.useState(null)
   const [editingFolder, setEditingFolder] = React.useState(null)
+  const [exportLoading, setExportLoading] = React.useState(false)
+  const [importFile, setImportFile] = React.useState(null)
+  const [importConfirmOpen, setImportConfirmOpen] = React.useState(false)
+  const [importLoading, setImportLoading] = React.useState(false)
+  const [restartPending, setRestartPending] = React.useState(false)
+  const [restartLoading, setRestartLoading] = React.useState(false)
+  const fileInputRef = React.useRef(null)
   const isDiscordUsed = discordUrl.trim() !== ''
 
   React.useEffect(() => {
@@ -288,6 +305,52 @@ const Settings = () => {
     }
   }
 
+  const handleExportBackup = async () => {
+    setExportLoading(true)
+    try {
+      const response = await BackupService.exportBackup()
+      const url = URL.createObjectURL(response.data)
+      const a = document.createElement('a')
+      const now = new Date()
+      const ts = now.toISOString().slice(0, 19).replace(/[-:T]/g, (c) => (c === 'T' ? '_' : c))
+      a.href = url
+      a.download = `fireshare_backup_${ts}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setAlert({ open: true, type: 'error', message: 'Failed to export backup' })
+    } finally {
+      setExportLoading(false)
+    }
+  }
+
+  const handleImportBackup = async () => {
+    setImportConfirmOpen(false)
+    setImportLoading(true)
+    try {
+      await BackupService.importBackup(importFile)
+      setImportFile(null)
+      setRestartPending(true)
+      setAlert({ open: true, type: 'success', message: 'Backup restored. A restart is required to fully commit changes.' })
+    } catch (err) {
+      setAlert({ open: true, type: 'error', message: err.response?.data?.message || 'Failed to import backup' })
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  const handleRestart = async () => {
+    setRestartLoading(true)
+    try {
+      await BackupService.restartApp()
+      setAlert({ open: true, type: 'info', message: 'Fireshare is restarting. Refresh the page in a few seconds.' })
+    } catch (err) {
+      setAlert({ open: true, type: 'error', message: 'Failed to restart. Please restart the container manually.' })
+    } finally {
+      setRestartLoading(false)
+    }
+  }
+
   return (
     <>
       <SnackbarAlert severity={alert.type} open={alert.open} setOpen={(open) => setAlert({ ...alert, open })}>
@@ -318,6 +381,7 @@ const Settings = () => {
           <Tab label="Transcoding" />
           <Tab label="Folders" />
           <Tab label="Actions" />
+          <Tab label="Backup" />
         </Tabs>
 
         {/* Tab Content Panel */}
@@ -962,6 +1026,105 @@ const Settings = () => {
                 </Button>
               </Stack>
             )}
+            {/* Backup & Restore */}
+            {activeTab === 6 && (
+              <Stack spacing={3} sx={{ maxWidth: 500, pt: 2 }}>
+                {/* Export */}
+                <Box>
+                  <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 14 }}>
+                    Export Backup
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#FFFFFF99', mb: 1.5 }}>
+                    Download a ZIP file containing your database, custom video thumbnails, and game artwork.
+                    Use this to migrate to a new instance or as a safety snapshot.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={exportLoading ? <CircularProgress size={16} color="inherit" /> : <BackupIcon />}
+                    onClick={handleExportBackup}
+                    disabled={exportLoading}
+                    size="large"
+                    sx={{ width: '100%', maxWidth: 400, bgcolor: '#3399FF', '&:hover': { bgcolor: '#1976D2' }, borderRadius: '8px' }}
+                  >
+                    {exportLoading ? 'Exporting…' : 'Export Backup'}
+                  </Button>
+                </Box>
+
+                <Divider />
+
+                {/* Import */}
+                <Box>
+                  <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 14 }}>
+                    Restore Backup
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#FFFFFF99', mb: 1 }}>
+                    Restore a previously exported backup. This will completely replace your current database
+                    and game artwork. Your video files are not affected.
+                  </Typography>
+                  <Chip
+                    label="This action cannot be undone"
+                    size="small"
+                    sx={{ mb: 2, bgcolor: '#3399FF22', color: '#3399FF', borderColor: '#3399FF55', border: '1px solid' }}
+                  />
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".zip"
+                      style={{ display: 'none' }}
+                      onChange={(e) => setImportFile(e.target.files[0] || null)}
+                    />
+                    <Button
+                      variant="outlined"
+                      startIcon={<UploadFileIcon />}
+                      onClick={() => fileInputRef.current?.click()}
+                      size="small"
+                    >
+                      Choose File
+                    </Button>
+                    <Typography variant="body2" sx={{ color: importFile ? '#FFFFFF' : '#FFFFFF55' }}>
+                      {importFile ? importFile.name : 'No file selected'}
+                    </Typography>
+                  </Stack>
+                  <Button
+                    variant="contained"
+                    onClick={() => setImportConfirmOpen(true)}
+                    disabled={!importFile || importLoading}
+                    size="large"
+                    startIcon={importLoading ? <CircularProgress size={16} color="inherit" /> : null}
+                    sx={{ width: '100%', maxWidth: 400, bgcolor: '#3399FF', '&:hover': { bgcolor: '#1976D2' }, borderRadius: '8px' }}
+                  >
+                    {importLoading ? 'Restoring…' : 'Restore Backup'}
+                  </Button>
+                </Box>
+
+                {/* Restart */}
+                {restartPending && (
+                  <>
+                    <Divider />
+                    <Box>
+                      <Typography variant="overline" sx={{ fontWeight: 700, fontSize: 14 }}>
+                        Restart Required
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#FFFFFF99', mb: 1.5 }}>
+                        A restart is required to fully commit the restored backup. Make sure your container
+                        has a restart policy set (<code>restart: unless-stopped</code>).
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        onClick={handleRestart}
+                        disabled={restartLoading}
+                        size="large"
+                        startIcon={restartLoading ? <CircularProgress size={16} color="inherit" /> : null}
+                        sx={{ width: '100%', maxWidth: 400, bgcolor: '#3399FF', '&:hover': { bgcolor: '#1976D2' }, borderRadius: '8px' }}
+                      >
+                        {restartLoading ? 'Restarting…' : 'Restart Fireshare'}
+                      </Button>
+                    </Box>
+                  </>
+                )}
+              </Stack>
+            )}
           </Box>
 
           {/* Save button pinned to bottom */}
@@ -981,6 +1144,26 @@ const Settings = () => {
           )}
         </Box>
       </Box>
+
+      {/* Backup restore confirmation dialog */}
+      <Dialog open={importConfirmOpen} onClose={() => setImportConfirmOpen(false)} PaperProps={{ sx: dialogPaperSx }}>
+        <DialogTitle sx={dialogTitleSx}>Restore Backup?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will permanently replace your current database and all game artwork with the contents of{' '}
+            <strong>{importFile?.name}</strong>. Your video files will not be affected.
+            <br />
+            <br />
+            This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={handleImportBackup} variant="contained" sx={{ bgcolor: '#3399FF', '&:hover': { bgcolor: '#1976D2' } }}>
+            Restore
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }
